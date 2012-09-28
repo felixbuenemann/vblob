@@ -181,7 +181,7 @@ Sample no such bucket response from FS driver
 
 
 ### Listing keys of objects in one bucket
-Buckets may contain many objects. Enumerating the objects in a Bucket returns an alphabetically sorted list of keys and additional metadata about each item. This feature is currently unsupported by the FS driver.
+Buckets may contain many objects. Enumerating the objects in a Bucket returns an alphabetically sorted list of keys and additional metadata about each item. 
 
     GET http://<service-endpoint>/<bucket-name>
 
