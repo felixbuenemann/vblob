@@ -21,6 +21,8 @@ var openssl_available = false; //by default do not use openssl to calculate md5
 var gc_hash = {}; //for caching gc info;
 var enum_cache = {};
 var enum_expire = {};
+var prefix_cache = {}; //{bucket: { last_ts:ts, prefA: {last_ts:ts , prefB: {prefC ...}}...}
+var prefix_refresh_interval = 30000; //30 seconds
 
 function hex_val(ch)
 {
@@ -279,6 +281,8 @@ function FS_blob(option,callback)  //fow now no encryption for fs
       }
     } else { this1.logger.error( ('root folder in fs driver is not mounted')); }
     if (callback) { callback(this1,err); }
+    /* 
+     //don't use this
     //check openssl
     exec('echo "dummy" | openssl md5',
         function(error,stdout, stderr) {
@@ -289,6 +293,7 @@ function FS_blob(option,callback)  //fow now no encryption for fs
           this1.logger.info('use openssl for md5 calculation');
           openssl_available = true;
         } );
+    */
   });
 }
 
@@ -379,6 +384,12 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
           if (stdout === null || stdout === undefined || stdout === '') {
             var child = exec('rm -rf '+fb.root_path+"/"+container_name,
               function (error, stdout, stderr) {
+                //remove the whole bucket prefix cache
+                try {
+                  delete prefix_cache[container_name];
+                } catch (err) {
+                  //totally ok if it's already been deleted
+                }
                 var header = common_header();
                 resp_code = 204; resp_header = header;
                 callback(resp_code, resp_header, null, null);
@@ -460,14 +471,38 @@ function remove_uploaded_file(fdir_path)
   });
 }
 
+//use prefix_cache to avoid unnecessary sync folder creation
 function create_prefix_folders(prefix_array, callback)
 {
   var resp = {};
   error_msg(404,"NoSuchBucket","Bucket does not exist.",resp);
   var path_pref = null;
+  var obj = null;
+  var parent_obj = null;
+  var now = new Date().valueOf();
+  var pos;
+  var bucket_name;
+  var substr1;
   for (var idx = 0; idx < prefix_array.length; idx++) {
+    if (idx == 0) {
+      //extract the bucket
+      pos = prefix_array[idx].lastIndexOf('/');
+      bucket_name = prefix_array[idx].substring(0,pos);
+      substr1 = prefix_array[idx].substring(pos+1);
+      try {
+        obj = prefix_cache[bucket_name][substr1];
+      } catch (err) {
+        obj = null;
+      }
+    } else {
+      parent_obj = obj;
+      obj = parent_obj[prefix_array[idx]];
+    }
     if (path_pref === null) path_pref = prefix_array[idx];
     else path_pref = path_pref + "/" + prefix_array[idx];
+    //cache hit
+    if (obj != null && obj != undefined &&
+      (obj.last_ts != null && obj.last_ts != undefined && now - obj.last_ts < prefix_refresh_interval)) continue;
     if (!Path.existsSync(path_pref)) {
       try {
         fs.mkdirSync(path_pref,"0775");
@@ -479,6 +514,22 @@ function create_prefix_folders(prefix_array, callback)
         //EEXIST: OK to proceed
         //ENOENT: error response no such container
       }
+    }
+    if (idx == 0) {
+      if (prefix_cache[bucket_name] == null || prefix_cache[bucket_name] == undefined) 
+        prefix_cache[bucket_name] = {};
+      obj = prefix_cache[bucket_name][substr1];
+      if (obj == null || obj == undefined)
+        prefix_cache[bucket_name][substr1] = {};
+      obj = prefix_cache[bucket_name][substr1];
+      obj.last_ts = now;
+    } else {
+      if (obj != null && obj != undefined) obj.last_ts = now;
+      else {
+        parent_obj[prefix_array[idx]] = {};
+        parent_obj[prefix_array[idx]].last_ts = now;
+      }
+      obj = parent_obj[prefix_array[idx]];
     }
   }
   return true;
@@ -553,7 +604,12 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   data.on("data",function (chunk) {
     if (file_size < 512000 || !openssl_available) md5_etag.update(chunk); else md5_etag = null;
     file_size += chunk.length;
-    stream.write(chunk);
+    if (stream.write(chunk) == false) {
+      data.pause();
+      stream.once('drain',function() {
+        data.resume();
+      });
+    }
   });
   data.on("end", function () {
     fb.logger.debug( ('upload ends '+blob_path));
