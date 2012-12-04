@@ -126,23 +126,22 @@ buck.on('compact',function(buck_idx) {
                   //?
                 }
                 //UPDATE BASE
+                //TODO: race condition
+                //in a deployment, restrict ec to single instance for now
                 var sync_cnt = 0;
-                while (sync_cnt < MAX_TRIES) { try { fs.unlinkSync(enum_dir+"/base"); } catch (e) {}; sync_cnt++;}
-                sync_cnt=0;
-                while (sync_cnt < MAX_TRIES) { try { fs.writeFileSync(enum_dir+"/base",JSON.stringify(enum_base)); } catch (e) {}; sync_cnt++; }
-                sync_cnt=0;
-                while (sync_cnt < MAX_TRIES) {
-                  try {
-                    fs.unlinkSync(enum_dir+"/quota");
-                  } catch (e) {};
-                  sync_cnt++;
-                }
-                var obj_cnt = Object.keys(enum_base).length;
-                sync_cnt=0;
-                while (sync_cnt<MAX_TRIES) { try { fs.writeFileSync(enum_dir+"/quota","{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {}; sync_cnt++; }
-                sync_cnt=0;
-                while (sync_cnt < MAX_TRIES) { try { fs.unlinkSync(file1);} catch (e) { }; sync_cnt++; };
-                if (evt2.counter > 0) evt2.emit('next',idx2+1);
+                var temp_name = enum_dir+"/base-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+                while (sync_cnt < MAX_TRIES) { try { fs.writeFileSync(temp_name,JSON.stringify(enum_base)); } catch (e) {}; sync_cnt++; }
+                exec('mv '+temp_name+" "+enum_dir+"/base", function (error, stdout, stderr) {
+                  var temp_name2 = enum_dir+"/quota-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+                  var obj_cnt = Object.keys(enum_base).length;
+                  sync_cnt=0;
+                  while (sync_cnt<MAX_TRIES) { try { fs.writeFileSync(temp_name2,"{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {}; sync_cnt++; }
+                  exec('mv '+temp_name2+" "+enum_dir+"/quota",function(error,stdout,stderr) {
+                    sync_cnt=0;
+                    while (sync_cnt < MAX_TRIES) { try { fs.unlinkSync(file1);} catch (e) { }; sync_cnt++; };
+                    if (evt2.counter > 0) evt2.emit('next',idx2+1);
+                  });
+                });
               });
           }); //end of next
           evt2.emit('next',0);

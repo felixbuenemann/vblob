@@ -402,6 +402,7 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
             callback(resp_code, resp_header, resp_body, null);
           }
           var retry_cnt=0;
+          //suppress temporary failures from underlying storage 
           while (retry_cnt < MAX_DEL_RETRY) { try { fs.unlinkSync(fn1); } catch (e) {} ; retry_cnt++; }
           retry_cnt=0;
           while (retry_cnt < MAX_DEL_RETRY) { try { fs.unlinkSync(fn2); } catch (e) {} ; retry_cnt++; }
@@ -761,11 +762,9 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           }
           return;
         }
-    //step 7 ln -f meta/key versions/version_id
-        var child = exec('ln -f '+fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_version+" "+ fb.root_path + "/"+container_name+"/meta/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint,
+    //step 7 atomically rename temp to meta/key for versions/version_id
+        var child = exec('mv '+ temp_path + " "+ fb.root_path + "/"+container_name+"/meta/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint,
           function (error, stdout, stderr) {
-            //now we can remove temp
-            fs.unlink(temp_path,function(err) {});
     //step 8 respond
             fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
             callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
@@ -865,7 +864,7 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
   fs.readFile(src_meta_path, function(err,data) {
     if (err) {
       if (!retry_cnt) retry_cnt = 0;
-      if (retry_cnt < MAX_COPY_RETRY) { //reduce the false negative rate
+      if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
         setTimeout(function(fb1) { fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
         return;
       }
@@ -995,7 +994,7 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
   //read meta here
   fs.readFile(file_path,function (err, data) {
     if (err) {
-      //link is atomic, but re-link is two-step; re-query once to reduce the false negative rate
+      //suppress temporary failures from underlying storage
       if (!retry_cnt) retry_cnt = 0;
       if (retry_cnt < MAX_READ_RETRY) {
         setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
