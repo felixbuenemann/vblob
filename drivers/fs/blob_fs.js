@@ -1209,7 +1209,7 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
     enum_cache[container_name] = null;
     try {
       enum_cache[container_name] = {tbl:JSON.parse(fs.readFileSync(fb.root_path+"/"+container_name+"/"+ENUM_FOLDER+"/base"))};
-      enum_expire[container_name] = now + 1000 * 5;
+      enum_expire[container_name] = now + 1000 * 15;
       query_files(container_name, options,callback,fb);
     } catch (e) {
       var resp = {};
