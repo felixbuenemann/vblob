@@ -111,8 +111,6 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
         "secretID": "<secret for front-end authentication>",
         "auth": "<`basic`, `digest` or `s3`; other values mean disabled>",
         "debug": <set to true to enable verbose output of all requests in the console>,
-        "account_file" : <pathname for the cloudfoundry binding file, default is "./account.json">,
-        "account_api" : <set to true to enable cloudfoundry service apis, default is true>
     }
 
 `current driver` is used to specify the driver to be used by the service at startup. Only 1 driver can be in use at any time. If no default is specified the first driver will be used.
@@ -122,8 +120,6 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
 `keyID` and `secretID` and `auth` are used to control front-end authentication. If either the key or id is not present or if auth is not set to a proper auth type then authentication is disabled. Currently the following types are supported: "basic", "digest", and "s3". "basic" and "digest" implementation follows rfc2617.
 
 `debug` is used to log request and response headers to the console for debugging purposes. Its value is treated as boolean.
-
-`account_file` is the place where vblob instance stores the CloudFoundry service binding credentials. After a vblob service instance is provisioned in CloundFoundry, user can binding multiple CF apps to the instance. This file indicates vblob where to load and update the binding crendentials so that the apps can properly authenticate with the vblob instance. `account_api` controls whether the CF bind/unbind API is on/off in the instance. For a single node deployment, this is always set to true. For a multi-node deployment, only one node should turn on this switch. 
 
 ## Usage
 
@@ -236,8 +232,3 @@ A small modification is required to add the endpoint where the gateway is runnin
 When the gateway is handling a large number of concurrent requests, it may open too many file descriptors. It is suggested to increase the file descriptor limit. E.g.: in unix-type systems:
 
     ulimit -n 8192
-
-## File a Bug
-
-To file a bug against Cloud Foundry Open Source and its components, sign up and use our
-bug tracking system: [http://cloudfoundry.atlassian.net](http://cloudfoundry.atlassian.net)

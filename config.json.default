@@ -24,6 +24,5 @@
     "keyID": "dummy",
     "secretID": "dummy",
     "auth": "disabled",
-    "account_api" : true
 }
 
