@@ -31,6 +31,8 @@ function get_key_fingerprint(filename)
   }
   return digest+'-'+prefix+'-'+suffix;
 }
+var PREFIX_LENGTH = 2;
+var PREFIX_LENGTH2 = 1;
 var MAX_TRIES = 5;
 var argv = process.argv;
 var root_path = argv[2];
@@ -137,7 +139,7 @@ buck.on('compact',function(buck_idx) {
                       //CALC FINGERPRINT AND READ META
                       var filename = get_key_fingerprint(current_key);
                       ivt_enum[filename] = current_key;
-                      var pref1 = filename.substr(0,2), pref2 = filename.substr(2,2);
+                      var pref1 = filename.substr(0,PREFIX_LENGTH), pref2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
                       fs.readFile(meta_dir+"/"+pref1+"/"+pref2+"/"+filename, function(err3,data2) {
                         try {
                           if (err3) throw 'error';

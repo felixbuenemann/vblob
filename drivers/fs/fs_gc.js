@@ -34,6 +34,7 @@ for (var ii = 0; ii < argv.length; ii++) {
 var BATCH_NUM = 1;
 var root_path = argv[2];
 var PREFIX_LENGTH = 2;
+var PREFIX_LENGTH2 = 1;
 var MAX_TRIES = 5;
 var containers = fs.readdirSync(root_path);
 console.log(containers);
@@ -46,7 +47,7 @@ buck.on('gc',function(buck_idx) {
     for (var nIdx1=0; nIdx1<trashes.length; nIdx1++) {
       var fileversion = trashes[nIdx1];
       try {
-        var prefix1 = fileversion.substr(0,PREFIX_LENGTH), prefix2 = fileversion.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+        var prefix1 = fileversion.substr(0,PREFIX_LENGTH), prefix2 = fileversion.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
         var ver_path = root_path + "/" + containers[buck_idx] + "/versions/" + prefix1 + "/" + prefix2+"/"+fileversion;
         var obj = JSON.parse(fs.readFileSync(ver_path));
         enum_delta[obj.vblob_file_name] = 1;
@@ -82,7 +83,7 @@ buck.on('gc',function(buck_idx) {
       filename = filename.substr(0,filename.lastIndexOf('-'));  //remove rand2
       filename = filename.substr(0,filename.lastIndexOf('-')); //remove rand1
       filename = filename.substr(0,filename.lastIndexOf('-')); //remove ts
-      var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+      var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/versions/" + prefix1 + "/" + prefix2;
       var temp_file = tmp_path+"/gctmp-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
       var child = exec('find '+ fdir_path +"/ -type f -name \""+filename+"-*\" >"+temp_file,

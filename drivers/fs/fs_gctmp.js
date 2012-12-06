@@ -26,6 +26,7 @@ for (var ii = 0; ii < argv.length; ii++) {
 var BATCH_NUM = 1;
 var root_path = argv[2];
 var PREFIX_LENGTH = 2;
+var PREFIX_LENGTH2 = 1;
 var MAX_TIMEOUT = 6 * 3600 * 1000; //6 hrs
 var containers = fs.readdirSync(root_path);
 console.log(containers);
@@ -41,7 +42,7 @@ buck.on('gc',function(buck_idx) {
     evt.on('next',function(idx) {
       var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand
       //console.log(filename);
-      var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+      var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/blob/" + prefix1 + "/" + prefix2;
       fs.stat(trash_dir+"/"+filename, function(err,stats) {
         if (err) {

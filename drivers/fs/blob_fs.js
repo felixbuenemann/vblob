@@ -9,6 +9,7 @@ var util = require('util');
 var events = require("events");
 var exec = require('child_process').exec;
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
+var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
 var base64_char_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 var TEMP_FOLDER = "~tmp";
@@ -553,7 +554,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
 //step2.2 gen unique version id
   var version_id = generate_version_id(key_fingerprint);
 //step3 create meta file in ~tmp (probably create parent folders)
-  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
   var prefix_path = prefix1 + "/" + prefix2 + "/";
   var temp_path = c_path + "/" + TEMP_FOLDER +"/" + version_id;
   var blob_path = c_path + "/blob/" + prefix_path + version_id;
@@ -751,7 +752,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
       if (!gc_hash[container_name]) gc_hash[container_name] = {};
       if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
     //step 6 mv to versions
-      var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+      var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       //link to version, so version link > 1, gc won't remove it at this point
       fs.link(temp_path, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_version,function (err) {
         if (err) {
@@ -786,7 +787,7 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
 //step2.2 gen unique version id
   //generate a fake version, just a place holder to let gc know there are work to do
   var version_id = generate_version_id(key_fingerprint);
-  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
   var file_path = c_path + "/meta/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
   fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id,function(err) {
     if (err) {
@@ -823,8 +824,8 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
 //step2.2 gen unique version id
   var version_id = generate_version_id(key_fingerprint);
 //step3 create meta file in ~tmp (probably create parent folders)
-  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH);
-  var src_prefix1 = src_key_fingerprint.substr(0,PREFIX_LENGTH), src_prefix2 = src_key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH);
+  var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
+  var src_prefix1 = src_key_fingerprint.substr(0,PREFIX_LENGTH), src_prefix2 = src_key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
   var prefix_path = prefix1 + "/" + prefix2 + "/";
   var src_prefix_path = src_prefix1 + "/" + src_prefix2 + "/";
   var temp_path = c_path + "/" + TEMP_FOLDER +"/" + version_id;
@@ -976,7 +977,7 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
 //step2.1 calc unique hash for key
   var key_fingerprint = get_key_fingerprint(filename);
 //step2.2 gen unique version id
-  var file_path = c_path + "/meta/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH)+"/"+key_fingerprint; //complete representation: /container_name/filename
+  var file_path = c_path + "/meta/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
 //    error_msg(404,"NoSuchFile","No such file",resp);resp.resp_end();return;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var keys = Object.keys(options);
