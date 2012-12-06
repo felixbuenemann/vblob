@@ -2,12 +2,10 @@
 
 Copyright (c) 2011-2012 VMware, Inc.
 
-This document describes the REST api supported by the [Blob service] for accessing objects and buckets from Cloud Foundry applications. Please refer to the project readme.md if you are looking for instructions on how to deploy and use the Blob service as a standalone process without using the Cloud Foundry infrastructure.
+This document describes the REST api supported by the [Blob service] for accessing objects and buckets. Please refer to the project readme.md if you are looking for instructions on how to deploy and use the Blob service as a standalone process.
 
 ## Introduction
 The Blob service has been designed to offer a useful subset of the S3 API with maximal compatibility with S3 including XML elements and error codes.
-
-This release is intended for applications running inside a Cloud Foundry environment like cloudfoundry.com or Micro Cloud Foundry. The service cannot currently be reached directly from the Internet.
 
 There are currently 2 providers of storage for the Blob service: S3 or file system. These are configured as drivers in the Blob service. Only one of the drivers can currently be active in a single deployed instance of the service. Requests to the Blob service are translated into operations on the underlying storage via the installed driver.
 
@@ -27,7 +25,6 @@ The following S3 API features are currently unsupported
 
 - virtual-host style buckets using `http://<bucket-name>.<endpoint>/<object-key>` syntax
 - https
-- multiple cloud-foundry locations in a single instance of the FS driver
 - multiple amazon aws locations with a single instance of the S3 driver
 - POST requests to upload objects
 - ACLs on objects or ACL policies on buckets
@@ -40,14 +37,14 @@ The following S3 API features are currently unsupported
 - SOAP api
 
 #### Request signing
-Requests have to be signed using the same method as S3 requests. Keys for signing requests will be provisioned by Cloud Foundry and injected into the environment of Applications just like the service endpoint. For details on signing requests see the [aws developer documentation](http://docs.amazonwebservices.com/AmazonS3/latest/dev/index.html?RESTAuthentication.html).
+Requests have to be signed using the same method as S3 requests. For details on signing requests see the [aws developer documentation](http://docs.amazonwebservices.com/AmazonS3/latest/dev/index.html?RESTAuthentication.html).
 
 #### REST endpoint and bucket names
-Libraries written to work with S3 should be usable as long they can be directed to the Blob service endpoint (host:port) as provisioned by Cloud Foundry. This information will be made accessible to applications in Cloud Foundry via their environment. The Blob service does not support "virtual host" style endpoints with bucket names in the `Host` header. Bucket names are always specified in the query path of the URL. E.g.
+Libraries written to work with S3 should be usable as long they can be directed to the Blob service endpoint (host:port). The Blob service does not support "virtual host" style endpoints with bucket names in the `Host` header. Bucket names are always specified in the query path of the URL. E.g.
 
     http://<service-endpoint>/<bucket-name>/...
 
-The Blob service does *not* enforce uniqueness of bucket names across users. Since each Cloud Foundry user can deploy and bind to their own instance of the Blob service, this restriction is not necessary, even when the service is enhanced to support "virtual host" style endpoints.
+The Blob service does *not* enforce uniqueness of bucket names across users.
 
 For interoperability, the Blob service restricts bucket names following the DNS-compatible recommendations in the [S3 guidelines for bucket names](http://docs.amazonwebservices.com/AmazonS3/latest/dev/BucketRestrictions.html). 
 
