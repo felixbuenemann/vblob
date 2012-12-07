@@ -40,7 +40,7 @@ buck.on('gc',function(buck_idx) {
     evt.Container = containers[i];
     evt.Batch = BATCH_NUM; evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]
       //console.log(filename);
       var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/blob/" + prefix1 + "/" + prefix2;
@@ -63,8 +63,12 @@ buck.on('gc',function(buck_idx) {
           }
           return;
         }
-        if (stats.nlink <= 2) { fs.unlink(fdir_path+"/"+filename,function() {} ); //not an active version
-          fs.unlink(fver_path+"/"+filename,function() {});
+        if (filename.charAt(filename.length-1)=='b') {
+          //temp blob
+        } else {
+          if (stats.nlink <= 2) { fs.unlink(fdir_path+"/"+filename,function() {} ); //not an active version
+            fs.unlink(fver_path+"/"+filename,function() {});
+          }
         }
         fs.unlink(trash_dir+"/"+filename,function() {
           evt.Counter++; evt.Batch--

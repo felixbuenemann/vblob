@@ -98,14 +98,6 @@ buck.on('gc',function(buck_idx) {
     evt.on('nextbatch',function() {
       console.log('counter ' + evt.Counter);
       if (evt.Counter + BATCH_NUM > trashes.length) evt.Batch = trashes.length - evt.Counter;
-      /*
-      if (evt.Counter >= trashes.length) {
-        //WRITE ENUM DELTA
-        var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-        fs.writeFile(enum_delta_file, JSON.stringify(enum_delta),function(err) {} );
-        enum_delta = null;
-      }
-      */
       for (var i = evt.Counter; i < trashes.length && i < evt.Counter + BATCH_NUM; i++) {
         evt.emit('next', i);
       }

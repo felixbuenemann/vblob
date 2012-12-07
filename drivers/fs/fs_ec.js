@@ -33,7 +33,8 @@ function get_key_fingerprint(filename)
 }
 var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
-var MAX_TRIES = 5;
+var MAX_WRITE_TRIES = 3;
+var MAX_DELETE_TRIES = 5;
 var argv = process.argv;
 var root_path = argv[2];
 var tmp_path = '/tmp';
@@ -85,7 +86,7 @@ buck.on('compact',function(buck_idx) {
             return;
           }
           var deleted = 0;
-          while (deleted < MAX_TRIES) {
+          while (deleted < MAX_DELETE_TRIES) {
             try {
               fs.unlinkSync(temp_file);
             } catch (e) { };
@@ -106,16 +107,16 @@ buck.on('compact',function(buck_idx) {
                   //in a deployment, restrict ec to single instance for now
                   var sync_cnt = 0;
                   var temp_name = enum_dir+"/base-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-                  while (sync_cnt < MAX_TRIES) { try { fs.writeFileSync(temp_name,JSON.stringify(enum_base)); } catch (e) {}; sync_cnt++; }
+                  while (sync_cnt < MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name,JSON.stringify(enum_base)); } catch (e) {}; sync_cnt++; }
                   exec('mv '+temp_name+" "+enum_dir+"/base", function (error, stdout, stderr) {
                     var temp_name2 = enum_dir+"/quota-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
                     var obj_cnt = Object.keys(enum_base).length;
                     sync_cnt=0;
-                    while (sync_cnt<MAX_TRIES) { try { fs.writeFileSync(temp_name2,"{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {}; sync_cnt++; }
+                    while (sync_cnt<MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name2,"{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {}; sync_cnt++; }
                     exec('mv '+temp_name2+" "+enum_dir+"/quota",function(error,stdout,stderr) {
                       for (var idx3=0; idx3<versions.length; idx3++) {
                         sync_cnt=0;
-                        while (sync_cnt < MAX_TRIES) { try { fs.unlinkSync(versions[idx3]);} catch (e) { }; sync_cnt++; };
+                        while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(versions[idx3]);} catch (e) { }; sync_cnt++; };
                       }
                     });
                   }); //end of exec
