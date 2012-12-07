@@ -7,7 +7,8 @@ var exec = require('child_process').exec;
 
 var argv = process.argv;
 
-var gc_timestamp = null;
+var MAX_TIMEOUT = 30 * 1000; //30 seconds
+var gc_timestamp = new Date().valueOf() - MAX_TIMEOUT;
 var tmp_path = '/tmp';
 for (var ii = 0; ii < argv.length; ii++) {
   if (argv[ii] === '--tmp') {

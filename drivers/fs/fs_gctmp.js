@@ -44,6 +44,7 @@ buck.on('gc',function(buck_idx) {
       //console.log(filename);
       var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/blob/" + prefix1 + "/" + prefix2;
+      var fver_path = root_path + "/" + evt.Container + "/versions/" + prefix1 + "/" + prefix2;
       fs.stat(trash_dir+"/"+filename, function(err,stats) {
         if (err) {
           evt.Counter++; evt.Batch--
@@ -62,7 +63,9 @@ buck.on('gc',function(buck_idx) {
           }
           return;
         }
-        if (stats.nlink <= 2) fs.unlink(fdir_path+"/"+filename,function() {} ); //not an active version
+        if (stats.nlink <= 2) { fs.unlink(fdir_path+"/"+filename,function() {} ); //not an active version
+          fs.unlink(fver_path+"/"+filename,function() {});
+        }
         fs.unlink(trash_dir+"/"+filename,function() {
           evt.Counter++; evt.Batch--
           if (evt.Batch === 0) {

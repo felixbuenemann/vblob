@@ -197,13 +197,13 @@ function start_gc(option,fb)
   var current_ts = new Date().valueOf();
   setTimeout(function() {
     fb.logger.info('start to collect left over tmp files');
-    exec(node_exepath + " " + gctmp_exepath + " " + fb.root_path + " --ts "+current_ts+" > /dev/null",
+    exec(node_exepath + " " + gctmp_exepath + " " + fb.root_path + " --tmp " + tmp_path + " --ts "+current_ts+" > /dev/null",
         function(error,stdout, stderr) {
           if (error || stderr) {
             fb.logger.warn('error in gc left over tmp files: ' + error?error:''+'-- '+stderr?stderr:'');
           }
           fb.logger.info('left over tmp files collected; now start to collect left over gc files');
-          exec(node_exepath + " " + gc_exepath + " " + fb.root_path + " --ts "+current_ts+" ",
+          exec(node_exepath + " " + gc_exepath + " " + fb.root_path + " --tmp " + tmp_path + " --ts "+current_ts+" ",
               function(error2,stdout2, stderr2) {
                 if (error2 || stderr2) {
                   fb.logger.warn('error in gc left over gc files: ' + error2?error2:''+'-- '+stderr2?stderr2:'');
@@ -748,14 +748,14 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
         fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
         return;
       }
-      //add to gc cache
-      if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
     //step 6 mv to versions
       var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       //link to version, so version link > 1, gc won't remove it at this point
       fs.link(temp_path, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_version,function (err) {
         if (err) {
+          //add to gc cache
+          if (!gc_hash[container_name]) gc_hash[container_name] = {};
+          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
           fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
           if (resp !== null) {
             error_msg(500,"InternalError",err,resp);
@@ -766,13 +766,16 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
     //step 7 atomically rename temp to meta/key for versions/version_id
         var child = exec('mv '+ temp_path + " "+ fb.root_path + "/"+container_name+"/meta/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint,
           function (error, stdout, stderr) {
+            //add to gc cache
+            if (!gc_hash[container_name]) gc_hash[container_name] = {};
+            if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
     //step 8 respond
             fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
             callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
           }
-        );
-      });
-    });
+        ); //end of mv temp to meta
+      }); //end of linking temp to version
+    }); //end of posting gc
   });
 };
 
@@ -796,11 +799,11 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
       callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
       return;
     }
-    //add to gc cache
-    if (!gc_hash[container_name]) gc_hash[container_name] = {};
-    if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id],fn:filename}; else gc_hash[container_name][key_fingerprint].ver.push(version_id);
 
     fs.unlink(file_path, function(err) {
+      //add to gc cache
+      if (!gc_hash[container_name]) gc_hash[container_name] = {};
+      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id],fn:filename}; else gc_hash[container_name][key_fingerprint].ver.push(version_id);
       //ERROR?
       resp_code = 204;
       var header = common_header();
