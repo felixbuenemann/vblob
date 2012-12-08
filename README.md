@@ -34,13 +34,13 @@ The following 3rd party npm modules have been included in the node_modules subdi
 - vows: test framework
 
 ## Installing node.js
-The blob service depends on [node.js](http://nodejs.org/). We are working with the v0.6 branch and v0.6.10 tag.  
+The blob service depends on [node.js](http://nodejs.org/). We are working with the v0.8 branch and v0.8.15 tag.  
 
 To match the same branch and tag from github:
 
-    $> git clone -b v0.6 https://github.com/joyent/node.git <target-directory>
+    $> git clone -b v0.8 https://github.com/joyent/node.git <target-directory>
     $> cd <target-directory>
-    $> git checkout v0.6.10
+    $> git checkout v0.8.15
 
 To build node.js
 

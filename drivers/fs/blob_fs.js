@@ -8,6 +8,7 @@ var crypto = require('crypto');
 var util = require('util');
 var events = require("events");
 var exec = require('child_process').exec;
+var zlib = require('zlib');
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
@@ -1226,15 +1227,24 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
   var now = new Date().valueOf();
   if (!enum_cache[container_name] || !enum_expire[container_name] || enum_expire[container_name] < now) {
     enum_cache[container_name] = null;
+    var enum_raw = '{}';
     try {
-      enum_cache[container_name] = {tbl:JSON.parse(fs.readFileSync(fb.root_path+"/"+container_name+"/"+ENUM_FOLDER+"/base"))};
-      enum_expire[container_name] = now + 1000 * 15;
-      query_files(container_name, options,callback,fb);
-    } catch (e) {
-      var resp = {};
-      error_msg(500,'InternalError',e,resp);
-      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-    }
+      enum_raw = fs.readFileSync(fb.root_path+"/"+container_name+"/"+ENUM_FOLDER+"/base");
+    } catch (e) {}
+    zlib.unzip(enum_raw,function(err,buffer) {
+      enum_raw = null;
+      try {
+        if (err) throw err;
+	enum_cache[container_name] = {tbl:JSON.parse(buffer)};
+	enum_expire[container_name] = now + 1000 * 15;
+	query_files(container_name, options,callback,fb);
+      } catch (e) {
+	var resp = {};
+	error_msg(500,'InternalError',e,resp);
+	callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+      }
+      buffer = null;
+    }); // end of unzip
   } else query_files(container_name, options,callback,fb);
 }
 
