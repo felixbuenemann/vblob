@@ -47,18 +47,10 @@ buck.on('gc',function(buck_idx) {
     var enum_delta = {};
     for (var nIdx1=0; nIdx1<trashes.length; nIdx1++) {
       var fileversion = trashes[nIdx1];
-      try {
-        var prefix1 = fileversion.substr(0,PREFIX_LENGTH), prefix2 = fileversion.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-        var ver_path = root_path + "/" + containers[buck_idx] + "/versions/" + prefix1 + "/" + prefix2+"/"+fileversion;
-        var obj = JSON.parse(fs.readFileSync(ver_path));
-        enum_delta[obj.vblob_file_name] = 1;
-      } catch (err) {
-        //missing version file...
-        fileversion = fileversion.substr(0,fileversion.lastIndexOf('-'));  //remove rand2
-        fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove rand1
-        fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove ts
-        enum_delta[fileversion] = 0;
-      }
+      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-'));  //remove rand2
+      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove rand1
+      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove ts
+      enum_delta[fileversion] = 0;
     }
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
     var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
@@ -69,12 +61,15 @@ buck.on('gc',function(buck_idx) {
     evt.Batch = BATCH_NUM; evt.Counter = 0;
     evt.on('next',function(idx) {
       var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand
-      //console.log(filename);
+      var filename2 = filename;
+      var filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove rand2
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+      filename2 = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
       if (gc_timestamp) { //specified timestamp, check stats here
         var stats = null;
-        try { stats = fs.lstatSync(trash_dir+"/"+filename); }
+        try { stats = parseInt(filename2,10); }
         catch (err) {}
-        if (!stats || new Date(stats.mtime).valueOf() > gc_timestamp) {
+        if (!stats || stats  > gc_timestamp) {
           evt.Counter++; evt.Batch--;
           if (evt.Batch === 0) {  evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
           return;
