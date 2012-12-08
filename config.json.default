@@ -23,6 +23,6 @@
     "logfile": "./log.txt",
     "keyID": "dummy",
     "secretID": "dummy",
-    "auth": "disabled",
+    "auth": "disabled"
 }
 
