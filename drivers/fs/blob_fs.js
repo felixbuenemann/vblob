@@ -25,6 +25,7 @@ var gc_counter = 0; //counter for gc info
 var MAX_GC_QUEUE_LENGTH = 1600;
 var enum_cache = {};
 var enum_expire = {};
+var enum_queue = {};
 var prefix_cache = {}; //{bucket: { last_ts:ts, prefA: {last_ts:ts , prefB: {prefC ...}}...}
 var prefix_refresh_interval = 30000; //30 seconds
 
@@ -1226,7 +1227,12 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
   if (container_exists(container_name,callback,this) === false) return;
   var now = new Date().valueOf();
   if (!enum_cache[container_name] || !enum_expire[container_name] || enum_expire[container_name] < now) {
-    enum_cache[container_name] = null;
+    if (!enum_queue[container_name]) enum_queue[container_name]={state:'READY',queue:[]};
+    if (enum_queue[container_name].state == 'INPROGRESS') {
+      enum_queue[container_name].queue.push({cn:container_name, op:options, cb:callback}); //defer
+      return;
+    }
+    enum_queue[container_name].state='INPROGRESS';
     var enum_raw = '{}';
     try {
       enum_raw = fs.readFileSync(fb.root_path+"/"+container_name+"/"+ENUM_FOLDER+"/base");
@@ -1235,9 +1241,25 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
       enum_raw = null;
       try {
         if (err) throw err;
+        enum_queue[container_name].state='READY';
+        enum_cache[container_name] = null;
 	enum_cache[container_name] = {tbl:JSON.parse(buffer)};
-	enum_expire[container_name] = now + 1000 * 15;
+	enum_expire[container_name] = now + 1000 * 30;
 	query_files(container_name, options,callback,fb);
+        for (var idx=0; idx < enum_queue[container_name].queue.length; idx++) {
+          process.nextTick(function () {
+            if (enum_queue[container_name].queue.length > 0) {
+              var obj=enum_queue[container_name].queue.shift();
+              try {
+                query_files(obj.cn,obj.op,obj.cb,fb);
+              } catch (e) {
+	        var resp = {};
+	        error_msg(500,'InternalError',e,resp);
+	        callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+              }
+            }
+          });
+        }
       } catch (e) {
 	var resp = {};
 	error_msg(500,'InternalError',e,resp);
