@@ -19,7 +19,6 @@ var ENUM_FOLDER = "~enum";
 var MAX_COPY_RETRY = 3;
 var MAX_READ_RETRY = 3;
 var MAX_DEL_RETRY = 6;
-var openssl_available = false; //by default do not use openssl to calculate md5
 var gc_hash = {}; //for caching gc info;
 var gc_counter = 0; //counter for gc info
 var MAX_GC_QUEUE_LENGTH = 1600;
@@ -287,19 +286,6 @@ function FS_blob(option,callback)  //fow now no encryption for fs
       }
     } else { this1.logger.error( ('root folder in fs driver is not mounted')); }
     if (callback) { callback(this1,err); }
-    /* 
-     //don't use this
-    //check openssl
-    exec('echo "dummy" | openssl md5',
-        function(error,stdout, stderr) {
-          if (error || stderr || stdout !== 'f02e326f800ee26f04df7961adbf7c0a\n') {
-            this1.logger.info('no openssl for md5 calculation');
-            return;
-          }
-          this1.logger.info('use openssl for md5 calculation');
-          openssl_available = true;
-        } );
-    */
   });
 }
 
@@ -589,11 +575,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
       callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
     }
     if (data) data.destroy();
-    if (stream && !stream.destroyed) { stream.destroyed = true;  stream.destroy(); }
-    stream = null;
-    fs.unlink(temp_blob_path, function(err) {});
-    fs.unlink(temp_path, function(err) {});
-    //stream.destroy();
+    if (stream && !stream.destroyed) { stream.destroyed = true;  stream.end(); stream.destroySoon(); }
+    else fs.unlink(temp_blob_path, function(err) { });
   });
   data.on("error", function (err) {
     upload_failed = true;
@@ -603,11 +586,13 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
     }
     fb.logger.error( ('input stream '+temp_blob_path+" "+err));
     if (data) data.destroy();
-    if (stream && !stream.destroyed) { stream.destroyed = true; stream.destroy(); }
+    if (stream && !stream.destroyed) { stream.destroyed = true; stream.end(); stream.destroySoon(); }
+    else fs.unlink(temp_blob_path, function(err) { });
   });
   data.on("data",function (chunk) {
-    if (file_size < 512000 || !openssl_available) md5_etag.update(chunk); else md5_etag = null;
+    md5_etag.update(chunk);
     file_size += chunk.length;
+    if (!stream || stream.destroyed) return;
     if (stream.write(chunk) == false) {
       data.pause();
       stream.once('drain',function() {
@@ -636,7 +621,6 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
         fb.logger.error( (filename+' md5 not match: uploaded: '+ md5_base64 + ' specified: ' + create_options['content-md5']));
         data.destroy();
         remove_uploaded_file(temp_blob_path);
-        fs.unlink(temp_path, function(err) {});
         return;
       }
     }
@@ -661,31 +645,14 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
         error_msg(500,"InternalError","upload failed",resp);
         callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
       }
-      fs.unlink(temp_blob_path, function(err) {});
-      fs.unlink(temp_path, function(err) {});
+      fs.unlink(temp_blob_path, function(err) { });
       return;
     }
     fb.logger.debug( ("close write stream "+filename));
-    if (md5_etag) {
-      md5_etag = md5_etag.digest('hex');
-      closure1(md5_etag);
-    } else
-    var child = exec('openssl md5 '+temp_blob_path,
-          function (error, stdout, stderr) {
-      if (error) {
-          fb.logger.error(temp_blob_path+' md5 calculation error: '+error);
-          error_msg(500,"InternalError","Error in md5 calculation:"+error,resp);
-          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-          data.destroy();
-          remove_uploaded_file(temp_blob_path);
-          return;
-      }
-      //MD5(test1.txt)= xxxxx
-      md5_etag = stdout.substr(stdout.lastIndexOf(" ")+1);
-      md5_etag = md5_etag.replace("\n","");
-      closure1(md5_etag);
-    }); //openssl
+    md5_etag = md5_etag.digest('hex');
+    closure1(md5_etag);
   });
+
   if (data.connection) // copy stream does not have connection
   {
     data.connection.once('close',function() {
@@ -694,7 +661,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
       upload_failed = true;
       fb.logger.warn( ('interrupted upload: ' + filename));
       data.destroy();
-      stream.destroy();
+      if (stream && !stream.destroyed) {stream.destroyed=true; stream.end(); stream.destroySoon();}
+      else fs.unlink(temp_blob_path, function(err) { });
     });
   }
 };
