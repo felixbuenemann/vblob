@@ -122,8 +122,14 @@ buck.on('compact',function(buck_idx) {
                       }
                       var sync_cnt = 0;
                       var temp_name = enum_dir+"/base-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-                      while (sync_cnt < MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name,buffer); } catch (e) {}; sync_cnt++; }
+                      var failed_cnt = 0;
+                      while (sync_cnt < MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name,buffer); } catch (e) {failed_cnt++;}; sync_cnt++; }
                       buffer = null;
+                      if (failed_cnt >= MAX_WRITE_TRIES) { 
+                        sync_cnt=0;
+                        while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(temp_name);} catch (e) { }; sync_cnt++; };
+                        return;//can't write, give up
+                      }
                       exec('mv '+temp_name+" "+enum_dir+"/base", function (error, stdout, stderr) {
                         var temp_name2 = enum_dir+"/quota-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
                         var obj_cnt = Object.keys(enum_base).length;
@@ -139,7 +145,8 @@ buck.on('compact',function(buck_idx) {
                     })// end of zip
                   });//end of update_evt done
                   if (!err2) {
-                    var obj = JSON.parse(data);
+                    var obj = {};
+                    try { JSON.parse(data); } catch (e) { } //in case this file is truncated or corrupted
                     var keys = Object.keys(obj);
                     var collect_evt = new events.EventEmitter();
                     collect_evt.on('next_batch', function(current_idx) {

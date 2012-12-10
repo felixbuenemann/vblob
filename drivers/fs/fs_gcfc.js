@@ -37,7 +37,13 @@ buck.on('gc',function(buck_idx) {
       enum_delta[gc_hash[containers[buck_idx]][trashes[j]].fn] = 1;
     //WRITE ENUM DELTA
     var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-    fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
+    var sync_cnt = 0;
+    var failed_cnt = 0;
+    while (sync_cnt < MAX_TRIES) {
+      try { fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta)); } catch (e) {failed_cnt++;}
+      sync_cnt++;
+      if (failed_cnt < sync_cnt) break;
+    }
     enum_delta = null;
 
     var evt = new events.EventEmitter();
