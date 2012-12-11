@@ -44,7 +44,7 @@ buck.on('gc',function(buck_idx) {
       sync_cnt++;
       if (failed_cnt < sync_cnt) break;
     }
-    if (failed_cnt == MAX_TRIES) {
+    if (failed_cnt >= sync_cnt) {
       //can't proceed
       return;
     }

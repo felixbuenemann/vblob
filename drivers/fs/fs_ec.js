@@ -79,9 +79,8 @@ buck.on('compact',function(buck_idx) {
           if (versions.length === 0 || versions.length === 1 && versions[0] === '') return;
           try {
             enum_base_raw = fs.readFileSync(enum_dir+"/base");
-            var obj_q = JSON.parse(fs.readFileSync(enum_dir+"/quota"));
-            _used_quota = parseInt(obj_q.storage,10);
           } catch (e) {
+            return;
           }
           zlib.unzip(enum_base_raw,function(err,buffer) {
             if (!err) {
@@ -103,6 +102,7 @@ buck.on('compact',function(buck_idx) {
                 ver1 = ver1.substr(0,ver1.lastIndexOf('-')); //remove ts
               } else ver1 = get_key_fingerprint(keys1[nIdx1]); //in case version is not available
               ivt_enum[ver1] = keys1[nIdx1];
+              _used_quota += enum_base[keys1[nIdx1]].size;
             }
             var evt2 = new events.EventEmitter();
             evt2.counter = versions.length;
@@ -123,9 +123,9 @@ buck.on('compact',function(buck_idx) {
                       var sync_cnt = 0;
                       var temp_name = enum_dir+"/base-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
                       var failed_cnt = 0;
-                      while (sync_cnt < MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name,buffer); } catch (e) {failed_cnt++;}; sync_cnt++; }
+                      while (sync_cnt < MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name,buffer); } catch (e) {failed_cnt++;}; sync_cnt++; if (failed_cnt < sync_cnt) break; }
                       buffer = null;
-                      if (failed_cnt >= MAX_WRITE_TRIES) { 
+                      if (failed_cnt >= sync_cnt) { 
                         sync_cnt=0;
                         while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(temp_name);} catch (e) { }; sync_cnt++; };
                         return;//can't write, give up
