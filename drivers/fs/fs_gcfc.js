@@ -44,6 +44,10 @@ buck.on('gc',function(buck_idx) {
       sync_cnt++;
       if (failed_cnt < sync_cnt) break;
     }
+    if (failed_cnt == MAX_TRIES) {
+      //can't proceed
+      return;
+    }
     enum_delta = null;
 
     var evt = new events.EventEmitter();

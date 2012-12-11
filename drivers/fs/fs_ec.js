@@ -146,7 +146,7 @@ buck.on('compact',function(buck_idx) {
                   });//end of update_evt done
                   if (!err2) {
                     var obj = {};
-                    try { JSON.parse(data); } catch (e) { } //in case this file is truncated or corrupted
+                    try { obj = JSON.parse(data); } catch (e) { } //in case this file is truncated or corrupted
                     var keys = Object.keys(obj);
                     var collect_evt = new events.EventEmitter();
                     collect_evt.on('next_batch', function(current_idx) {
@@ -154,21 +154,23 @@ buck.on('compact',function(buck_idx) {
                       var batch_evt = new events.EventEmitter();
                       batch_evt.cnt = 0; batch_evt.target=(BATCH_NUM<keys.length-current_idx)?BATCH_NUM:(keys.length-current_idx);
                       batch_evt.on('next', function(current_key) {
+                        var got_hash = false;
                         if (obj[current_key] == 0) {
                           if (ivt_enum[current_key]) current_key = ivt_enum[current_key]; //look up file name by fingerprint
                           else {
-                            batch_evt.cnt++; if (batch_evt.cnt >= batch_evt.target) { collect_evt.emit('next_batch',current_idx+batch_evt.target); } 
-                            return;
+                            got_hash = true;
                           }
                         }
                         //CALC FINGERPRINT AND READ META
-                        var filename = get_key_fingerprint(current_key);
+                        var filename = got_hash?current_key:get_key_fingerprint(current_key);
                         ivt_enum[filename] = current_key;
                         var pref1 = filename.substr(0,PREFIX_LENGTH), pref2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
                         fs.readFile(meta_dir+"/"+pref1+"/"+pref2+"/"+filename, function(err3,data2) {
                           try {
                             if (err3) throw 'error';
                             var obj2 = JSON.parse(data2);
+                            ivt_enum[filename] = obj2.vblob_file_name;
+                            current_key = obj2.vblob_file_name;
                             var old_size = enum_base[current_key]?enum_base[current_key].size:0;
                             enum_base[current_key] = {};
                             enum_base[current_key].size = obj2.vblob_file_size;
