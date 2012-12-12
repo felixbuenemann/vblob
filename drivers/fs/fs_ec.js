@@ -7,7 +7,7 @@ var exec = require('child_process').exec;
 var crypto = require('crypto');
 var zlib = require('zlib');
 
-var BATCH_NUM = 10;
+var BATCH_NUM = 3;
 //identical to the ones in blob_fs
 function get_key_md5_hash(filename)
 {
@@ -70,11 +70,13 @@ buck.on('compact',function(buck_idx) {
             return;
           }
           var deleted = 0;
+          var failed_cnt = 0;
           while (deleted < MAX_DELETE_TRIES) {
             try {
               fs.unlinkSync(temp_file);
-            } catch (e) { };
+            } catch (e) {failed_cnt++; };
               deleted++;
+            if (failed_cnt < deleted) break;
           }
           if (versions.length === 0 || versions.length === 1 && versions[0] === '') return;
           try {
@@ -84,12 +86,13 @@ buck.on('compact',function(buck_idx) {
           }
           zlib.unzip(enum_base_raw,function(err,buffer) {
             if (!err) {
-            try {
-              enum_base = JSON.parse(buffer);
-            } catch (e) {
-            }
+              try {
+                enum_base = JSON.parse(buffer);
+              } catch (e) {
+                return; //parse failed
+              }
             } else {
-              //??
+              return; //unzip failed
             }
             buffer = null;
             var ivt_enum = {};
@@ -118,7 +121,7 @@ buck.on('compact',function(buck_idx) {
                     //in a deployment, restrict ec to single instance for now
                     zlib.deflate(JSON.stringify(enum_base), function(err,buffer) {
                       if (err) {
-                        fs.writeFileSync(temp_file+"-error"," "+err);
+                        return; //can't deflate, give up
                       }
                       var sync_cnt = 0;
                       var temp_name = enum_dir+"/base-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
@@ -131,11 +134,27 @@ buck.on('compact',function(buck_idx) {
                         return;//can't write, give up
                       }
                       exec('mv '+temp_name+" "+enum_dir+"/base", function (error, stdout, stderr) {
+                        if (error) {
+                          sync_cnt=0;
+                          while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(temp_name);} catch (e) { }; sync_cnt++; };
+                          return;//can't write, give up
+                        }
                         var temp_name2 = enum_dir+"/quota-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
                         var obj_cnt = Object.keys(enum_base).length;
                         sync_cnt=0;
-                        while (sync_cnt<MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name2,"{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {}; sync_cnt++; }
+                        failed_cnt = 0;
+                        while (sync_cnt<MAX_WRITE_TRIES) { try { fs.writeFileSync(temp_name2,"{\"storage\":"+_used_quota+",\"count\":"+obj_cnt+"}"); } catch (e) {failed_cnt++;}; sync_cnt++; if (failed_cnt < sync_cnt) break;}
+                        if (failed_cnt >= sync_cnt) {
+                          sync_cnt=0;
+                          while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(temp_name2);} catch (e) { }; sync_cnt++; };
+                          return;//can't write, give up
+                        }
                         exec('mv '+temp_name2+" "+enum_dir+"/quota",function(error,stdout,stderr) {
+                          if (error) {
+                            sync_cnt=0;
+                            while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(temp_name2);} catch (e) { }; sync_cnt++; };
+                            return;//can't write, give up
+                          }
                           for (var idx3=0; idx3<versions.length; idx3++) {
                             sync_cnt=0;
                             while (sync_cnt < MAX_DELETE_TRIES) { try { fs.unlinkSync(versions[idx3]);} catch (e) { }; sync_cnt++; };
@@ -167,7 +186,7 @@ buck.on('compact',function(buck_idx) {
                         var pref1 = filename.substr(0,PREFIX_LENGTH), pref2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
                         fs.readFile(meta_dir+"/"+pref1+"/"+pref2+"/"+filename, function(err3,data2) {
                           try {
-                            if (err3) throw 'error';
+                            if (err3) throw err3;
                             var obj2 = JSON.parse(data2);
                             ivt_enum[filename] = obj2.vblob_file_name;
                             current_key = obj2.vblob_file_name;
@@ -179,7 +198,7 @@ buck.on('compact',function(buck_idx) {
                             //enum_base[key].version = obj2.vblob_file_version; //debug purpose only, can disable to save space
                             _used_quota += enum_base[current_key].size - old_size;
                           } catch (e) {
-                            if (enum_base[current_key]) {
+                            if (e.code == 'ENOENT' && enum_base[current_key]) {
                               _used_quota -= enum_base[current_key].size;
                               delete enum_base[current_key];
                             }
