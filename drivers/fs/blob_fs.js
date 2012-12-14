@@ -1201,9 +1201,11 @@ function query_files(container_name, options, callback, fb)
         i++; continue;
       }
     }
-    i++;
-    var doc = enum_cache[container_name].tbl[key];
-    res_contents.push({"Key":key, "LastModified":new Date(doc.lastmodified).toISOString(), "ETag":'"'+doc.etag+'"', "Size":doc.size, "Owner":{}, "StorageClass":"STANDARD"});
+    var doc = enum_cache[container_name].tbl[key][0]; //no search for versions yet
+    if (doc.etag) { //in case this is a delete marker
+      i++;
+      res_contents.push({"Key":key, "LastModified":new Date(doc.lastmodified).toISOString(), "ETag":'"'+doc.etag+'"', "Size":doc.size, "Owner":{}, "StorageClass":"STANDARD"});
+    }
   }
   if (i >= limit && idx < idx2 && limit <= limit1) res_json["IsTruncated"] = 'true';
   else res_json["IsTruncated"] = 'false';
