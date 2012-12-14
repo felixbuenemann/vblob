@@ -565,7 +565,6 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
 //step 3.1 create folders is needed
   if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
   if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
-  if (!create_prefix_folders([c_path+"/meta",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
 //step 4 stream blob
   var stream = fs.createWriteStream(temp_blob_path);
   var md5_etag = crypto.createHash('md5');
@@ -827,8 +826,8 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
   var src_prefix_path = src_prefix1 + "/" + src_prefix2 + "/";
   var temp_path = c_path + "/" + TEMP_FOLDER +"/" + version_id;
   var blob_path = c_path + "/blob/" + prefix_path + version_id;
-  var src_meta_path = src_path + "/meta/" + src_prefix_path + src_key_fingerprint;
-
+  var src_meta_path = src_path + "/versions/" + src_prefix_path + src_key_fingerprint;
+  var seq_id;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var meta_dir=null;
   if (true){
@@ -858,12 +857,14 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
     callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
     return;
   }
+
+  var closure3 = function() {
   //read src meta here
-  fs.readFile(src_meta_path, function(err,data) {
+  fs.readFile(src_meta_path+"-"+seq_id, function(err,data) {
     if (err) {
       if (!retry_cnt) retry_cnt = 0;
       if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
-        setTimeout(function(fb1) { fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+        setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
         return;
       }
       error_msg(404,"NoSuchFile",err,resp);
@@ -941,24 +942,29 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
       //new file meta constructed, ready to create links etc.
       if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) return;
       if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) return;
-      if (!create_prefix_folders([c_path+"/meta",prefix1,prefix2],callback)) return;
-      fs.writeFile(temp_path, JSON.stringify(dest_obj), function (err) {
+      fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/~tmp/"+version_id+"-blob", function(err) {
         if (err) {
-          error_msg(500,"InternalError",""+err,resp);
-          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
           return;
         }
-        fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/"+dest_obj.vblob_file_path, function(err) {
-          if (err) {
-            remove_uploaded_file(temp_path);
-            setTimeout(function(fb1) { fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
-            return;
-          }
-          //ready to call file_create_meta
-          fb.file_create_meta(container_name,filename, temp_path, dest_obj, callback, fb, true);
-        });
+        //ready to call file_create_meta
+        fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, dest_obj, callback, fb, true);
       });
     };
+  });
+  }; // end of closure3
+  if (options.seq_id) { seq_id = options.seq_id; closure3(); }
+  else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+source_container+"/"+source_file, function (res) {
+    if (res.statuCode == 404) { 
+      error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+    } else {
+      seq_id = res.headers["seq-id"];
+      options.seq_id = seq_id;
+      closure3();
+    }
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });
 };
 
