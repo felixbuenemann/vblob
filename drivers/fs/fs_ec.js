@@ -207,12 +207,16 @@ buck.on('compact',function(buck_idx) {
           }
           var closure = function(bucket) {
             var ivt_enum = {};
+            var ivt_enum2 = {};
             var enum_base = global_enum_base[bucket];
             var keys1 = Object.keys(global_enum_base[bucket]);
             for (var nIdx1=0; nIdx1<keys1.length; nIdx1++) {
               var ver1 = get_key_fingerprint(keys1[nIdx1]);
               ivt_enum[keys1[nIdx1]] = ver1;
+              ivt_enum2[ver1] = keys1[nIdx1];
               _objects += enum_base[keys1[nIdx1]].length;
+              //need to change for versionings
+              if (enum_base[keys1[nIdx1]].length==1&&!enum_base[keys1[nIdx1]][0].etag) _objects--;
               for (var nIdx2=0; nIdx2<enum_base[keys1[nIdx1]].length; nIdx2++) {
                 _used_quota += enum_base[keys1[nIdx1]][nIdx2].size;
               }
@@ -244,6 +248,9 @@ buck.on('compact',function(buck_idx) {
                     for (var key_idx = 0; key_idx < keys.length; key_idx++) {
                         var current_key = keys[key_idx];
                         var filename;
+                        if (ivt_enum2[current_key]) { //special handling for delete
+                          filename = current_key; current_key = ivt_enum2[current_key];
+                        } else
                         if (ivt_enum[current_key]) filename = ivt_enum[current_key];
                         else
                           filename = get_key_fingerprint(current_key);
@@ -256,15 +263,14 @@ buck.on('compact',function(buck_idx) {
                             var old_size = enum_base[current_key]?enum_base[current_key][0].size:-1;
                             if (old_size == -1 || enum_base[current_key][0].seq <= obj2.vblob_seq_id) {
                             if (old_size != -1 && enum_base[current_key][0].seq == obj2.vblob_seq_id) continue;
-                            if (old_size != -1) {
-                            }
                             //unlink version and blob of current version
                             if (old_size != -1) fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
                             if (old_size != -1) fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
-                            if (old_size == -1) { old_size = 0; _objects += 1; }
+                            if (enum_base[current_key][0].etag && !obj2.vblob_file_etag) _objects--; //deleting an object
+                            if (old_size == -1) { old_size = 0; _objects += 1; if (!obj2.vblob_file_etag) _objects--; }
                             enum_base[current_key] = [{}];
                             enum_base[current_key][0].size = obj2.vblob_file_size;
-                            enum_base[current_key][0].etag = obj2.vblob_file_etag;
+                            if (obj2.vblob_file_etag) enum_base[current_key][0].etag = obj2.vblob_file_etag;
                             enum_base[current_key][0].lastmodified = obj2.vblob_update_time;
                             enum_base[current_key][0].seq = obj2.vblob_seq_id;
                             _used_quota += enum_base[current_key][0].size - old_size;

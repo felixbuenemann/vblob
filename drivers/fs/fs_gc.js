@@ -93,6 +93,15 @@ buck.on('gc',function(buck_idx) {
             evt.Batch = BATCH_NUM; evt.emit('nextbatch');
           }
         } else {
+          if (err.code == 'ENOENT') {
+            to_delete[filename] = 1;
+            if (!enum_delta[filename])
+              enum_delta[filename]=[];
+            var obj2 = {};
+            obj2.vblob_update_time = new Date(parseInt(filename2,10)).toUTCString().replace(/UTC/ig,"GMT");
+            obj2.vblob_seq_id = seq_id;
+            obj2.vblob_file_size = 0;
+          }
           evt.Counter++; evt.Batch--;
           if (evt.Batch === 0) { evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
         }

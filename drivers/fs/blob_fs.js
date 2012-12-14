@@ -783,26 +783,31 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
   //generate a fake version, just a place holder to let gc know there are work to do
   var version_id = generate_version_id(key_fingerprint);
   var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-  var file_path = c_path + "/meta/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
-  fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id,function(err) {
-    if (err) {
-      var resp = {};
-      error_msg(500,"InternalError",err,resp);
-      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-      return;
-    }
-
-    fs.unlink(file_path, function(err) {
+  var file_path = c_path + "/versions/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
+//we create a delete marker without actual data here
+  http.get("http://"+fb.seq_host+":"+fb.seq_port,function(res) {
+    var seq_id = res.headers["seq-id"];
+    fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id+"-"+seq_id,function(err) {
+      if (err) {
+        var resp = {};
+        error_msg(500,"InternalError",err,resp);
+        callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+        return;
+      }
       //add to gc cache
       gc_counter++;
       if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id],fn:filename}; else gc_hash[container_name][key_fingerprint].ver.push(version_id);
+      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id+"-"+seq_id], meta:[{vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}], fn:filename}; else { gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id); gc_hash[container_name][key_fingerprint].meta.push({vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}); }
       //ERROR?
       resp_code = 204;
       var header = common_header();
       resp_header = header;
       callback(resp_code, resp_header, null, null);
     });
+  }).on('error',function(err) {
+    var resp = {};
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });
 };
 
