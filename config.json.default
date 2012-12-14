@@ -4,6 +4,7 @@
         "fs-1": {
             "type": "fs",
             "option": {
+              "single_node" : true
             }
         }
     },

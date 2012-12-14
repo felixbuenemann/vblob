@@ -266,9 +266,9 @@ buck.on('compact',function(buck_idx) {
                             //unlink version and blob of current version
                             if (old_size != -1) fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
                             if (old_size != -1) fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
-                            if (enum_base[current_key][0].etag && !obj2.vblob_file_etag) _objects--; //deleting an object
+                            if (old_size != -1 && enum_base[current_key][0].etag && !obj2.vblob_file_etag) _objects--; //deleting an object
                             if (old_size == -1) { old_size = 0; _objects += 1; if (!obj2.vblob_file_etag) _objects--; }
-                            enum_base[current_key] = [{}];
+                            if (!enum_base[current_key]) enum_base[current_key] = [{}];
                             enum_base[current_key][0].size = obj2.vblob_file_size;
                             if (obj2.vblob_file_etag) enum_base[current_key][0].etag = obj2.vblob_file_etag;
                             enum_base[current_key][0].lastmodified = obj2.vblob_update_time;

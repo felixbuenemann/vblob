@@ -101,7 +101,7 @@ function start_collector(option,fb)
     if (ec_status === 1) return; //already a gc process running
     ec_status = 1;
     //node fs_ec.js <blob root> <global tmp>
-    exec(node_exepath + " " + ec_exepath + " " + fb.root_path + " --tmp " + fb.tmp_path + " > /dev/null",
+    exec(node_exepath + " " + ec_exepath + " " + fb.root_path + " --tmp " + fb.tmp_path + " --long_running_interval "+ec_interval+" > /dev/null",
         function(error,stdout, stderr) {
           ec_status = 0; //finished set to 0
           if (error || stderr) {
@@ -158,7 +158,6 @@ function start_gc(option,fb)
   fb.gcfcid = setInterval(function() {
     if (gcfc_status === 1 || gc_hash === null || Object.keys(gc_hash).length === 0) return; //optimization to avoid empty loop
     gcfc_status = 1;
-    console.log('doing gcfc here');
     var tmp_fn = tmp_path+"/gcfc-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
     var tmp_hash = gc_hash;
     gc_hash = null;
@@ -263,10 +262,10 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   else {this.quota = 100 * 1024 * 1024; this.used_quota=0;} //default 100MB
   if (option.obj_limit) { this.obj_limit = parseInt(option.obj_limit, 10); this.obj_count = 0; }
   else {this.obj_limit=10000; this.obj_count=0;} //default 10,000 objects
-  if (option.seq_host) { this.seq_host = option.seq_host; }
-  if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); }
-  if (option.meta_host) { this.meta_host = option.meta_host; }
-  if (option.meta_port) { this.meta_port = parseInt(option.meta_port,10); }
+  if (option.seq_host) { this.seq_host = option.seq_host; } else this.seq_host = "localhost";
+  if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); } else this.seq_port = 9876;
+  if (option.meta_host) { this.meta_host = option.meta_host; } else this.meta_host = "localhost";
+  if (option.meta_port) { this.meta_port = parseInt(option.meta_port,10); } else this.meta_port = 9877;
   if (!this1.root_path) {
     this1.root_path = './fs_root'; //default fs root
     try {
@@ -283,11 +282,18 @@ function FS_blob(option,callback)  //fow now no encryption for fs
     if (!err) {
       start_gc(option,this1);
       //set enumeration on by default
-      if (option.collector === undefined || option.collector === true) {
+      if (option.single_node == true || option.collector == true) {
         this.collector = true;
         start_collector(option,this1);
         //as long as enumeration is on, quotas is enabled as well
         setTimeout(start_quota_gathering, 1000, this1);
+      }
+      if (option.single_node == true) {
+        //start sequence server
+        var node_exepath = option.node_exepath ? option.node_exepath : process.execPath;
+        var seq_exepath =  __dirname+"/seq_server.js";
+        exec(node_exepath+" "+seq_exepath+" 2>&1 >/dev/null", function(error,stdout,stderr) {
+        })
       }
     } else { this1.logger.error( ('root folder in fs driver is not mounted')); }
     if (callback) { callback(this1,err); }

@@ -2,7 +2,7 @@
 
 Copyright (c) 2011-2012 VMware, Inc.
 
-The blob service provides an S3-compatible HTTP endpoint to an underlying storage provider. A driver model is used for different providers. Currently the available drivers include S3 (Amazon web services) or a local file system (FS) driver.
+The blob service provides an S3-compatible HTTP endpoint to an underlying storage provider. A driver model is used for different providers. Currently the available drivers include S3 (Amazon web services) or a network file system (FS) driver.
 
 ## Authors
 - Sonic Wang (wangs@vmware.com)
@@ -10,7 +10,7 @@ The blob service provides an S3-compatible HTTP endpoint to an underlying storag
 ## Features
 - RESTful web service
 - S3 compatibility
-- plugin model (currently support local fs, s3)
+- plugin model (currently support nfs, s3)
 - streaming in/out blobs
 - basic blob operations: create/delete/get/copy
 - create/list/delete buckets
@@ -20,7 +20,7 @@ The blob service provides an S3-compatible HTTP endpoint to an underlying storag
 ## FS driver
 For scalability, the file system driver supports multiple instances of the gateway operating on the same files. Metadata and blobs live in separate physical files in different directories. New files do not replace existing files until they have been fully uploaded and persisted. Old files are cleaned up using garbage collection processes which run in the background.
 
-The file system driver was designed to provide consistency without the use of any database. It depends on the file system for reference-counting hard links and atomic 'mv' operations.
+The file system driver was designed to provide consistency without the use of any database. It depends on the file system for reference-counting hard links and atomic 'mv' operations. This driver is primarily designed for running on a NAS box with NFS protocol. The deployment can have multiple instances of vblob running to horizontally scale throughput for requests. This driver also works for a single node deployment on local disk.
 
 ## API Documentation
 - For details of supported API features see the [doc](doc) directory
@@ -64,7 +64,7 @@ The gateway and its drivers can be configured via config.json which is read at s
 
 Drivers are assumed to live under `./drivers/<type>` -- currently only `fs` and `s3` driver types are included.  
 
-The FS driver stores all blobs in directories and files under a "root" location in the local file system. The default location if this value is unspecified is `./fs_root`
+The FS driver stores all blobs in directories and files under a "root" location in either a local file system or a network file system. The default location if this value is unspecified is `./fs_root`
 
 The S3 driver requires a valid key and secret from your Amazon S3 storage account. All operations are simply passed through the gateway and handled by S3.
 
@@ -89,7 +89,12 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
                     "ec_exepath": "<path to ec js file, default is `drivers/fs/fs_ec.js` >",
                     "ec_interval": <ms per ec execution, default is `1,500` (1.5 sec) >,
                     "quota": <maximum number of bytes allowed to store, default is 100MB >,
-                    "obj_limit" : <maximum number of blobs allowed to store, default is 10,000 >
+                    "obj_limit" : <maximum number of blobs allowed to store, default is 10,000 >,
+                    "seq_host" : <ip/hostname for the sequence server, default is localhost>,
+                    "seq_port" : <port for the sequence server, default is 9876>,
+                    "meta_host" : <ip/hostname for the metadata server, default is lcoalhost>,
+                    "meta_port" : <port for the metadata server, default is 9877>,
+                    "single_home" : <if we want to run every component in a single node, default is true>
                 }
             }
         },
