@@ -9,6 +9,7 @@ var util = require('util');
 var events = require("events");
 var exec = require('child_process').exec;
 var zlib = require('zlib');
+var http = require('http');
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
@@ -152,12 +153,12 @@ function start_gc(option,fb)
           }
         } );
     }, gc_interval);
-
   //gc from cache
   var gcfc_status = 0;
   fb.gcfcid = setInterval(function() {
     if (gcfc_status === 1 || gc_hash === null || Object.keys(gc_hash).length === 0) return; //optimization to avoid empty loop
     gcfc_status = 1;
+    console.log('doing gcfc here');
     var tmp_fn = tmp_path+"/gcfc-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
     var tmp_hash = gc_hash;
     gc_hash = null;
@@ -262,6 +263,8 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   else {this.quota = 100 * 1024 * 1024; this.used_quota=0;} //default 100MB
   if (option.obj_limit) { this.obj_limit = parseInt(option.obj_limit, 10); this.obj_count = 0; }
   else {this.obj_limit=10000; this.obj_count=0;} //default 10,000 objects
+  if (option.seq_host) { this.seq_host = option.seq_host; }
+  if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); }
   if (!this1.root_path) {
     this1.root_path = './fs_root'; //default fs root
     try {
@@ -603,6 +606,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   data.on("end", function () {
     fb.logger.debug( ('upload ends '+temp_blob_path));
     data.upload_end = true;
+    stream.destroyed = true;
     stream.end();
     stream.destroySoon();
   });
@@ -683,15 +687,20 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
   var dDate = new Date();
   doc.vblob_update_time = dDate.toUTCString().replace(/UTC/ig, "GMT"); //RFC 822
   doc.vblob_file_name = filename;
+  var seq_id;
+http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
+  seq_id = res.headers["seq-id"];
+  doc.vblob_seq_id = seq_id;
+  doc.vblob_file_path = doc.vblob_file_path.substring(0,doc.vblob_file_path.lastIndexOf('/')+1)+doc.vblob_file_fingerprint+"-"+seq_id; 
   //temp_path will be writen twice, to prevent losing information when crash in the middle of an upload
-  fs.writeFile(temp_path,JSON.stringify(doc), function(err) {
+  fs.writeFile(temp_path+"-"+seq_id,JSON.stringify(doc), function(err) {
     if (err) {
       fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
       if (resp !== null) {
         error_msg(404,"NoSuchBucket",err,resp);
         callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
       }
-      fs.unlink(temp_path,function(err) {});
+      fs.unlink(temp_path+"-"+seq_id,function(err) {});
       fs.unlink(temp_path+"-blob",function(err){});
       return;
     }
@@ -713,31 +722,30 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           error_msg(404,"NoSuchBucket",err,resp);
           callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
         }
-        fs.unlink(temp_path,function(err) {});
+        fs.unlink(temp_path+"-"+seq_id,function(err) {});
         fs.unlink(temp_path+"-blob",function(err){});
         return;
       }
       //step 5.6 add to /~GC
-      fs.symlink(temp_path, fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version,function(err) {
+      fs.symlink(temp_path+"-"+seq_id, fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id,function(err) {
         if (err) {
           fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
           if (resp !== null) {
             error_msg(500,"InternalError",err,resp);
             callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
           }
-          fs.unlink(temp_path,function(err) {});
+          fs.unlink(temp_path+"-"+seq_id,function(err) {});
           fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
           return;
         }
       //step 6 mv to versions
         var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
         //link to version, so version link > 1, gc won't remove it at this point
-        fs.link(temp_path, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_version,function (err) {
+        fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
           if (err) {
-            //add to gc cache
-            gc_counter++;
-            if (!gc_hash[container_name]) gc_hash[container_name] = {};
-            if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
+            fs.unlink(fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id);
+            fs.unlink(temp_path+"-"+seq_id,function(err) {});
+            fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
             fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
             if (resp !== null) {
               error_msg(500,"InternalError",err,resp);
@@ -745,22 +753,21 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
             }
             return;
           }
-      //step 7 atomically rename temp to meta/key for versions/version_id
-          var child = exec('mv '+ temp_path + " "+ fb.root_path + "/"+container_name+"/meta/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint,
-            function (error, stdout, stderr) {
-              //add to gc cache
-              gc_counter++;
-              if (!gc_hash[container_name]) gc_hash[container_name] = {};
-              if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
-      //step 8 respond
-                fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
-                callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
-              }
-            ); //end of mv temp to meta
-          }); //end of linking temp to version
+          //add to gc cache
+          gc_counter++;
+          if (!gc_hash[container_name]) gc_hash[container_name] = {};
+          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version+"-"+seq_id], meta:[{vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}], fn:doc.vblob_file_name}; else { gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id); gc_hash[container_name][doc.vblob_file_fingerprint].meta.push({vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}); }
+          fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
+          callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
+          fs.unlink(temp_path+"-"+seq_id, function(err){});
+        }); //end of linking temp to version
       }); //end of posting gc
     }); //end of renaming temp blob to blob/version
-  });
+  }); //end of write meta file
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+  });//end of getting sequence
 };
 
 FS_blob.prototype.file_delete_meta = function (container_name, filename, callback, fb)

@@ -43,28 +43,25 @@ var buck = new events.EventEmitter();
 buck.on('gc',function(buck_idx) {
   try {
     var trashes = fs.readdirSync(root_path + "/" + containers[buck_idx] + "/~gc");
+    var to_delete = {};
     var trash_dir = root_path + "/" + containers[buck_idx] + "/~gc";
     var enum_delta = {};
-    for (var nIdx1=0; nIdx1<trashes.length; nIdx1++) {
-      var fileversion = trashes[nIdx1];
-      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-'));  //remove rand2
-      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove rand1
-      fileversion = fileversion.substr(0,fileversion.lastIndexOf('-')); //remove ts
-      enum_delta[fileversion] = 0;
-    }
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
     var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-    fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
-
     var evt = new events.EventEmitter();
     evt.Container = containers[buck_idx];
     evt.Batch = BATCH_NUM; evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand[-ts-cnt]
       var filename2 = filename;
-      var filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove rand2
+      var filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove cnt
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
+      var seq_id = filename.substring(filename2.length+1);
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+      var fingerprint = filename2.substring(0,filename2.lastIndexOf('-',filename2.lastIndexOf('-')-1));
       filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
       filename2 = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+      console.log('filename: '+filename+"  fingerprint: " + fingerprint+"  seq_id: " + seq_id);
       if (gc_timestamp) { //specified timestamp, check stats here
         var stats = null;
         try { stats = parseInt(filename2,10); }
@@ -75,54 +72,31 @@ buck.on('gc',function(buck_idx) {
           return;
         }
       }
-      fs.unlink(trash_dir+"/"+filename,function() {} );
-      filename = filename.substr(0,filename.lastIndexOf('-'));  //remove rand2
-      filename = filename.substr(0,filename.lastIndexOf('-')); //remove rand1
-      filename = filename.substr(0,filename.lastIndexOf('-')); //remove ts
       var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/versions/" + prefix1 + "/" + prefix2;
-      var temp_file = tmp_path+"/gctmp-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-      var child = exec('find '+ fdir_path +"/ -type f -name \""+filename+"-*\" >"+temp_file,
-        function (error, stdout, stderr) {
-          if (!error) {
-            var versions = fs.readFileSync(temp_file).toString().split("\n");
-            var try_cnt=0;
-            while (try_cnt<MAX_TRIES) { try {fs.unlinkSync(temp_file); } catch (e) {}; try_cnt++; }
-            var evt2 = new events.EventEmitter();
-            evt2.counter = versions.length;
-            evt2.on('next',function(idx2) {
-              var file1 = versions[idx2];
-              fs.stat(file1,function(err,stats) {
-                evt2.counter--;
-                if (!err && stats.nlink <= 1) {
-                  fs.readFile(file1,function(err2,data) {
-                    if (!err2) {
-                      var obj = JSON.parse(data);
-                      fs.unlink(root_path+"/"+evt.Container+"/"+obj.vblob_file_path,function() {} );
-                    }
-                    fs.unlink(file1,function() {} );
-                    if (evt2.counter > 0) evt2.emit('next',idx2+1); else
-                    if (evt2.counter === 0 && evt.Batch === 0) {
-                      evt.Batch = BATCH_NUM; evt.emit('nextbatch');
-                    }
-                  });
-                } else {
-                  if (evt2.counter === 0) {
-                    evt.Counter++; evt.Batch--;
-                    if (evt.Batch === 0) { evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
-                  } else evt2.emit('next',idx2+1);
-                }
-              });
-            });
-            evt2.emit('next',0);
-          } else {
-            fs.unlink(temp_file,function() {});
-            console.error('error!' + error);
-            evt.Counter++; evt.Batch--;
-            if (evt.Batch === 0) {  evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
+      var file1 = fdir_path + "/" + fingerprint + "-" + seq_id;
+      fs.readFile(file1,function(err,data) {
+        if (!err) {
+          to_delete[filename] = 1;
+          var obj = JSON.parse(data);
+          if (!enum_delta[obj.vblob_file_name])
+            enum_delta[obj.vblob_file_name]=[];
+          var obj2 = {};
+          obj2.vblob_file_etag=obj.vblob_file_etag;
+          obj2.vblob_update_time=obj.vblob_update_time;
+          obj2.vblob_seq_id=obj.vblob_seq_id;
+          obj2.vblob_file_size=obj.vblob_file_size;
+          enum_delta[obj.vblob_file_name].push(obj2);
+          obj2 = null;
+          evt.Counter++; evt.Batch--;
+          if (evt.Batch === 0) {
+            evt.Batch = BATCH_NUM; evt.emit('nextbatch');
           }
-        }//end of exec callback
-      );
+        } else {
+          evt.Counter++; evt.Batch--;
+          if (evt.Batch === 0) { evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
+        }
+      });
     });
     evt.on('nextbatch',function() {
       console.log('counter ' + evt.Counter);
@@ -131,8 +105,23 @@ buck.on('gc',function(buck_idx) {
         evt.emit('next', i);
       }
       if (evt.Counter >= trashes.length) {
+        //write to delta file and unlink to_delete list
         enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
-        fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
+        var sync_cnt = 0;
+        var failed_cnt = 0;
+        while (sync_cnt < MAX_TRIES) {
+          try {
+            fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
+          } catch (e) { failed_cnt++; }
+          sync_cnt++;
+          if (failed_cnt < sync_cnt) break;
+        }
+        if (failed_cnt < sync_cnt) {
+          //now safely remove the gc files
+          var keys = Object.keys(to_delete);
+          for (var idx=0; idx<keys.length; idx++)
+            fs.unlink(trash_dir+"/"+keys[idx],function(e) {});
+        }
       }
     });
     evt.emit('nextbatch');
