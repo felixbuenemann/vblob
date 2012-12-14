@@ -6,8 +6,7 @@ var events = require("events");
 var exec = require('child_process').exec;
 var crypto = require('crypto');
 var zlib = require('zlib');
-
-var BATCH_NUM = 10;
+var express = require('express');
 
 //identical to the ones in blob_fs
 function get_key_md5_hash(filename)
@@ -43,6 +42,7 @@ var tmp_path = '/tmp';
 var long_running = false;
 var long_running_interval = 300; //check every 300ms
 var long_running_flush_interval = 10 * 1000; //write image to disk every 10 seconds
+var port = 9877;
 
 for (var ii = 0; ii < argv.length; ii++) {
   if (argv[ii] === '--tmp') {
@@ -52,12 +52,20 @@ for (var ii = 0; ii < argv.length; ii++) {
   } else if (argv[ii] === '--long_running_interval') {
     if (ii+1 < argv.length) {
       long_running = true;
-      try { long_running_interval = parseInt(argv[ii+1],10); } catch (e) { }
+      long_running_interval = parseInt(argv[ii+1],10);
+      if (isNaN(long_running_interval)) long_running_interval = 300;
     }
   } else if (argv[ii] === '--long_running_flush_interval') {
     if (ii+1 < argv.length) {
       long_running = true;
-      try { long_running_flush_interval = parseInt(argv[ii+1],10); } catch (e) { }
+      long_running_flush_interval = parseInt(argv[ii+1],10);
+      if (isNaN(long_running_flush_interval)) long_running_flush_interval = 10*1000;
+    }
+  } else if (argv[ii] === '--port') {
+    if (ii+1 < argv.length) {
+      long_running = true;
+      port = parseInt(argv[ii+1],10);
+      if (isNaN(port)) port = 9877;
     }
   }
 }
@@ -160,7 +168,6 @@ flush_event.on('flush',function() {
 flush_event.on('done', function() {
 //finish here
   job_done = true;
-  console.log('job finished ' + new Date());
 });
 
 buck.on('compact',function(buck_idx) {
@@ -193,7 +200,7 @@ buck.on('compact',function(buck_idx) {
             } catch (e) { };
               deleted++;
           }
-          if (versions.length === 0 || versions.length === 1 && versions[0] === '') {
+          if (global_enum_base[containers[buck_idx]]) if (versions.length === 0 || versions.length === 1 && versions[0] === '') {
             flush_event.counter--;
             if (flush_event.counter == 0) flush_event.emit('flush');
             return;
@@ -278,7 +285,13 @@ buck.on('compact',function(buck_idx) {
                   }
                 }); //end of readfile
             }); //end of next
-            evt2.emit('next',0);
+            if (evt2.counter > 0)
+              evt2.emit('next',0);
+            else {
+              flush_event.counter--;
+              if (flush_event.counter == 0) flush_event.emit('flush');
+              return;
+            }
           } // end of closure function
           if (!global_enum_base[containers[buck_idx]]) {
             try {
@@ -318,11 +331,24 @@ buck.on('compact',function(buck_idx) {
 
 
 function run_once() {
-  console.log('job starting ' + new Date());
   containers = fs.readdirSync(root_path);
   flush_event.counter = containers.length;
   for (var i = 0; i < containers.length; i++)
     buck.emit('compact',i);
+}
+
+if (long_running == true) {
+var app = express.createServer();
+app.get('/:container/:objname',function(req,res) {
+  var bucket = req.params.container;
+  var file = req.params.objname;
+  if (!global_enum_base[bucket]) { res.statusCode=404; res.end(); return;}
+  if (!global_enum_base[bucket][file]) { res.statusCode=404; res.end(); return; }
+  res.statusCode = 200;
+  res.setHeader("seq-id",global_enum_base[bucket][file][0].seq);
+  res.end();
+});
+app.listen(port);
 }
 
 if (long_running != true)

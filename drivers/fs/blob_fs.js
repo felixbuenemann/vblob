@@ -265,6 +265,8 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   else {this.obj_limit=10000; this.obj_count=0;} //default 10,000 objects
   if (option.seq_host) { this.seq_host = option.seq_host; }
   if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); }
+  if (option.meta_host) { this.meta_host = option.meta_host; }
+  if (option.meta_port) { this.meta_port = parseInt(option.meta_port,10); }
   if (!this1.root_path) {
     this1.root_path = './fs_root'; //default fs root
     try {
@@ -688,7 +690,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
   doc.vblob_update_time = dDate.toUTCString().replace(/UTC/ig, "GMT"); //RFC 822
   doc.vblob_file_name = filename;
   var seq_id;
-http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
+  http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
   seq_id = res.headers["seq-id"];
   doc.vblob_seq_id = seq_id;
   doc.vblob_file_path = doc.vblob_file_path.substring(0,doc.vblob_file_path.lastIndexOf('/')+1)+doc.vblob_file_fingerprint+"-"+seq_id; 
@@ -972,7 +974,7 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
 //step2.1 calc unique hash for key
   var key_fingerprint = get_key_fingerprint(filename);
 //step2.2 gen unique version id
-  var file_path = c_path + "/meta/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
+  var file_path = c_path + "/versions/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
 //    error_msg(404,"NoSuchFile","No such file",resp);resp.resp_end();return;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var keys = Object.keys(options);
@@ -987,12 +989,15 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
     else if (keys[idx].match(/^if-modified-since$/i))
     { date_modified = options[keys[idx]]; }
   }
+  var seq_id;
+  var closure2 = function() {
   //read meta here
-  fs.readFile(file_path,function (err, data) {
+  fs.readFile(file_path+"-"+seq_id,function (err, data) {
     if (err) {
       //suppress temporary failures from underlying storage
       if (!retry_cnt) retry_cnt = 0;
       if (retry_cnt < MAX_READ_RETRY) {
+        delete options.seq_id;
         setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
         return;
       }
@@ -1107,6 +1112,20 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
         });
       }  else { callback(resp_code, resp_header, null, null);  }
     }
+  });
+  };//end of closure2
+  if (options.seq_id) { seq_id = options.seq_id; closure2(); }
+  else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+container_name+"/"+filename, function (res) {
+    if (res.statuCode == 404) { 
+      error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+    } else {
+      seq_id = res.headers["seq-id"];
+      options.seq_id = seq_id;
+      closure2();
+    }
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });
 };
 
