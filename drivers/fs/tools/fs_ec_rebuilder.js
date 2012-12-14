@@ -59,7 +59,7 @@ var containers = fs.readdirSync(root_path);
 console.log(containers);
 buck.on('compact',function(buck_idx) {
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
-    var meta_dir = root_path + "/" + containers[buck_idx] + "/meta";
+    var meta_dir = root_path + "/" + containers[buck_idx] + "/versions";
     var enum_base = {};
     var enum_base_raw = '{}';
     var _used_quota = 0;
@@ -136,12 +136,14 @@ buck.on('compact',function(buck_idx) {
                           if (err3) throw 'error';
                           var obj2 = JSON.parse(data2);
                           var fn = obj2.vblob_file_name;
-                          enum_base[fn] = {};
-                          enum_base[fn].size = obj2.vblob_file_size;
-                          enum_base[fn].etag = obj2.vblob_file_etag;
-                          enum_base[fn].lastmodified = obj2.vblob_update_time;
+                          if (!enum_base[fn]) enum_base[fn] = [{}];
+                          else enum_base[fn].unshift({});
+                          enum_base[fn][0].size = obj2.vblob_file_size;
+                          enum_base[fn][0].etag = obj2.vblob_file_etag;
+                          enum_base[fn][0].lastmodified = obj2.vblob_update_time;
+                          enum_base[fn][0].seq = obj2.vblob_seq_id;
                           //enum_base[fn].version = obj2.vblob_file_version; //debug purpose only, can disable to save space
-                          _used_quota += enum_base[fn].size;
+                          _used_quota += enum_base[fn][0].size;
                         } catch (e) {
                         }
                         batch_evt.cnt++; if (batch_evt.cnt >= batch_evt.target) { collect_evt.emit('next_batch',current_idx+batch_evt.target); }

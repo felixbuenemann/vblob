@@ -9,6 +9,7 @@ var util = require('util');
 var events = require("events");
 var exec = require('child_process').exec;
 var zlib = require('zlib');
+var http = require('http');
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
@@ -152,12 +153,12 @@ function start_gc(option,fb)
           }
         } );
     }, gc_interval);
-
   //gc from cache
   var gcfc_status = 0;
   fb.gcfcid = setInterval(function() {
     if (gcfc_status === 1 || gc_hash === null || Object.keys(gc_hash).length === 0) return; //optimization to avoid empty loop
     gcfc_status = 1;
+    console.log('doing gcfc here');
     var tmp_fn = tmp_path+"/gcfc-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
     var tmp_hash = gc_hash;
     gc_hash = null;
@@ -262,6 +263,10 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   else {this.quota = 100 * 1024 * 1024; this.used_quota=0;} //default 100MB
   if (option.obj_limit) { this.obj_limit = parseInt(option.obj_limit, 10); this.obj_count = 0; }
   else {this.obj_limit=10000; this.obj_count=0;} //default 10,000 objects
+  if (option.seq_host) { this.seq_host = option.seq_host; }
+  if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); }
+  if (option.meta_host) { this.meta_host = option.meta_host; }
+  if (option.meta_port) { this.meta_port = parseInt(option.meta_port,10); }
   if (!this1.root_path) {
     this1.root_path = './fs_root'; //default fs root
     try {
@@ -560,7 +565,6 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
 //step 3.1 create folders is needed
   if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
   if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
-  if (!create_prefix_folders([c_path+"/meta",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
 //step 4 stream blob
   var stream = fs.createWriteStream(temp_blob_path);
   var md5_etag = crypto.createHash('md5');
@@ -603,6 +607,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   data.on("end", function () {
     fb.logger.debug( ('upload ends '+temp_blob_path));
     data.upload_end = true;
+    stream.destroyed = true;
     stream.end();
     stream.destroySoon();
   });
@@ -683,15 +688,20 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
   var dDate = new Date();
   doc.vblob_update_time = dDate.toUTCString().replace(/UTC/ig, "GMT"); //RFC 822
   doc.vblob_file_name = filename;
+  var seq_id;
+  http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
+  seq_id = res.headers["seq-id"];
+  doc.vblob_seq_id = seq_id;
+  doc.vblob_file_path = doc.vblob_file_path.substring(0,doc.vblob_file_path.lastIndexOf('/')+1)+doc.vblob_file_fingerprint+"-"+seq_id; 
   //temp_path will be writen twice, to prevent losing information when crash in the middle of an upload
-  fs.writeFile(temp_path,JSON.stringify(doc), function(err) {
+  fs.writeFile(temp_path+"-"+seq_id,JSON.stringify(doc), function(err) {
     if (err) {
       fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
       if (resp !== null) {
         error_msg(404,"NoSuchBucket",err,resp);
         callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
       }
-      fs.unlink(temp_path,function(err) {});
+      fs.unlink(temp_path+"-"+seq_id,function(err) {});
       fs.unlink(temp_path+"-blob",function(err){});
       return;
     }
@@ -713,31 +723,30 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           error_msg(404,"NoSuchBucket",err,resp);
           callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
         }
-        fs.unlink(temp_path,function(err) {});
+        fs.unlink(temp_path+"-"+seq_id,function(err) {});
         fs.unlink(temp_path+"-blob",function(err){});
         return;
       }
       //step 5.6 add to /~GC
-      fs.symlink(temp_path, fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version,function(err) {
+      fs.symlink(temp_path+"-"+seq_id, fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id,function(err) {
         if (err) {
           fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
           if (resp !== null) {
             error_msg(500,"InternalError",err,resp);
             callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
           }
-          fs.unlink(temp_path,function(err) {});
+          fs.unlink(temp_path+"-"+seq_id,function(err) {});
           fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
           return;
         }
       //step 6 mv to versions
         var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
         //link to version, so version link > 1, gc won't remove it at this point
-        fs.link(temp_path, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_version,function (err) {
+        fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
           if (err) {
-            //add to gc cache
-            gc_counter++;
-            if (!gc_hash[container_name]) gc_hash[container_name] = {};
-            if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
+            fs.unlink(fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id);
+            fs.unlink(temp_path+"-"+seq_id,function(err) {});
+            fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
             fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
             if (resp !== null) {
               error_msg(500,"InternalError",err,resp);
@@ -745,22 +754,21 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
             }
             return;
           }
-      //step 7 atomically rename temp to meta/key for versions/version_id
-          var child = exec('mv '+ temp_path + " "+ fb.root_path + "/"+container_name+"/meta/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint,
-            function (error, stdout, stderr) {
-              //add to gc cache
-              gc_counter++;
-              if (!gc_hash[container_name]) gc_hash[container_name] = {};
-              if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version], fn:doc.vblob_file_name}; else gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version);
-      //step 8 respond
-                fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
-                callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
-              }
-            ); //end of mv temp to meta
-          }); //end of linking temp to version
+          //add to gc cache
+          gc_counter++;
+          if (!gc_hash[container_name]) gc_hash[container_name] = {};
+          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version+"-"+seq_id], meta:[{vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}], fn:doc.vblob_file_name}; else { gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id); gc_hash[container_name][doc.vblob_file_fingerprint].meta.push({vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}); }
+          fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
+          callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
+          fs.unlink(temp_path+"-"+seq_id, function(err){});
+        }); //end of linking temp to version
       }); //end of posting gc
     }); //end of renaming temp blob to blob/version
-  });
+  }); //end of write meta file
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+  });//end of getting sequence
 };
 
 FS_blob.prototype.file_delete_meta = function (container_name, filename, callback, fb)
@@ -775,26 +783,31 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
   //generate a fake version, just a place holder to let gc know there are work to do
   var version_id = generate_version_id(key_fingerprint);
   var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-  var file_path = c_path + "/meta/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
-  fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id,function(err) {
-    if (err) {
-      var resp = {};
-      error_msg(500,"InternalError",err,resp);
-      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-      return;
-    }
-
-    fs.unlink(file_path, function(err) {
+  var file_path = c_path + "/versions/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
+//we create a delete marker without actual data here
+  http.get("http://"+fb.seq_host+":"+fb.seq_port,function(res) {
+    var seq_id = res.headers["seq-id"];
+    fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id+"-"+seq_id,function(err) {
+      if (err) {
+        var resp = {};
+        error_msg(500,"InternalError",err,resp);
+        callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+        return;
+      }
       //add to gc cache
       gc_counter++;
       if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id],fn:filename}; else gc_hash[container_name][key_fingerprint].ver.push(version_id);
+      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id+"-"+seq_id], meta:[{vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}], fn:filename}; else { gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id); gc_hash[container_name][key_fingerprint].meta.push({vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}); }
       //ERROR?
       resp_code = 204;
       var header = common_header();
       resp_header = header;
       callback(resp_code, resp_header, null, null);
     });
+  }).on('error',function(err) {
+    var resp = {};
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });
 };
 
@@ -818,8 +831,8 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
   var src_prefix_path = src_prefix1 + "/" + src_prefix2 + "/";
   var temp_path = c_path + "/" + TEMP_FOLDER +"/" + version_id;
   var blob_path = c_path + "/blob/" + prefix_path + version_id;
-  var src_meta_path = src_path + "/meta/" + src_prefix_path + src_key_fingerprint;
-
+  var src_meta_path = src_path + "/versions/" + src_prefix_path + src_key_fingerprint;
+  var seq_id;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var meta_dir=null;
   if (true){
@@ -849,12 +862,14 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
     callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
     return;
   }
+
+  var closure3 = function() {
   //read src meta here
-  fs.readFile(src_meta_path, function(err,data) {
+  fs.readFile(src_meta_path+"-"+seq_id, function(err,data) {
     if (err) {
       if (!retry_cnt) retry_cnt = 0;
       if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
-        setTimeout(function(fb1) { fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+        setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
         return;
       }
       error_msg(404,"NoSuchFile",err,resp);
@@ -932,24 +947,29 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
       //new file meta constructed, ready to create links etc.
       if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) return;
       if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) return;
-      if (!create_prefix_folders([c_path+"/meta",prefix1,prefix2],callback)) return;
-      fs.writeFile(temp_path, JSON.stringify(dest_obj), function (err) {
+      fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/~tmp/"+version_id+"-blob", function(err) {
         if (err) {
-          error_msg(500,"InternalError",""+err,resp);
-          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
           return;
         }
-        fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/"+dest_obj.vblob_file_path, function(err) {
-          if (err) {
-            remove_uploaded_file(temp_path);
-            setTimeout(function(fb1) { fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
-            return;
-          }
-          //ready to call file_create_meta
-          fb.file_create_meta(container_name,filename, temp_path, dest_obj, callback, fb, true);
-        });
+        //ready to call file_create_meta
+        fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, dest_obj, callback, fb, true);
       });
     };
+  });
+  }; // end of closure3
+  if (options.seq_id) { seq_id = options.seq_id; closure3(); }
+  else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+source_container+"/"+source_file, function (res) {
+    if (res.statuCode == 404) { 
+      error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+    } else {
+      seq_id = res.headers["seq-id"];
+      options.seq_id = seq_id;
+      closure3();
+    }
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });
 };
 
@@ -965,7 +985,7 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
 //step2.1 calc unique hash for key
   var key_fingerprint = get_key_fingerprint(filename);
 //step2.2 gen unique version id
-  var file_path = c_path + "/meta/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
+  var file_path = c_path + "/versions/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
 //    error_msg(404,"NoSuchFile","No such file",resp);resp.resp_end();return;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var keys = Object.keys(options);
@@ -980,12 +1000,15 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
     else if (keys[idx].match(/^if-modified-since$/i))
     { date_modified = options[keys[idx]]; }
   }
+  var seq_id;
+  var closure2 = function() {
   //read meta here
-  fs.readFile(file_path,function (err, data) {
+  fs.readFile(file_path+"-"+seq_id,function (err, data) {
     if (err) {
       //suppress temporary failures from underlying storage
       if (!retry_cnt) retry_cnt = 0;
       if (retry_cnt < MAX_READ_RETRY) {
+        delete options.seq_id;
         setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
         return;
       }
@@ -1101,6 +1124,20 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
       }  else { callback(resp_code, resp_header, null, null);  }
     }
   });
+  };//end of closure2
+  if (options.seq_id) { seq_id = options.seq_id; closure2(); }
+  else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+container_name+"/"+filename, function (res) {
+    if (res.statuCode == 404) { 
+      error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+    } else {
+      seq_id = res.headers["seq-id"];
+      options.seq_id = seq_id;
+      closure2();
+    }
+  }).on('error', function(err) {
+    error_msg(500,"InternalError",err,resp);
+    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+  });
 };
 
 function query_files(container_name, options, callback, fb)
@@ -1169,9 +1206,11 @@ function query_files(container_name, options, callback, fb)
         i++; continue;
       }
     }
-    i++;
-    var doc = enum_cache[container_name].tbl[key];
-    res_contents.push({"Key":key, "LastModified":new Date(doc.lastmodified).toISOString(), "ETag":'"'+doc.etag+'"', "Size":doc.size, "Owner":{}, "StorageClass":"STANDARD"});
+    var doc = enum_cache[container_name].tbl[key][0]; //no search for versions yet
+    if (doc.etag) { //in case this is a delete marker
+      i++;
+      res_contents.push({"Key":key, "LastModified":new Date(doc.lastmodified).toISOString(), "ETag":'"'+doc.etag+'"', "Size":doc.size, "Owner":{}, "StorageClass":"STANDARD"});
+    }
   }
   if (i >= limit && idx < idx2 && limit <= limit1) res_json["IsTruncated"] = 'true';
   else res_json["IsTruncated"] = 'false';
