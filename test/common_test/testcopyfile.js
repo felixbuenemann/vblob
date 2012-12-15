@@ -12,11 +12,10 @@ var vows = require('vows');
 var assert = require('assert');
 var fs = require('fs');
 var events = require('events');
-var config = JSON.parse(require('./utils').execSync("curl http://localhost:9981/~config")); //must be the config you actually use for the vblob  instance
 
 var test_date = new Date().valueOf();
 var container_name = '/sonic-test'+test_date;
-var suite = vows.describe('testcopyfile: using container '+container_name+' against driver '+config['current_driver']+' on localhost:'+config.port);
+var suite = vows.describe('testcopyfile: using container '+container_name);
 var parse_xml = require('./utils').parse_xml;
 var assertStatus = require('./utils').assertStatus;
 var api = require('./utils').api;
@@ -92,7 +91,10 @@ suite.addBatch({
       assert.isNotNull(res.resp_body);
     } 
   }
-}).addBatch({
+}).addBatch({'TOPLEVEL': {
+  topic: function() {
+    setTimeout(this.callback,3000);
+  },
   'GET 2 container/testcopyfile-2.txt': {
     topic: api.get_data(container_name+'/testcopyfile-2.txt'),
     'should respond with a 200 OK':  assertStatus(200),
@@ -109,7 +111,7 @@ suite.addBatch({
       assert.equal(res.headers['x-amz-meta-hello'],'world');
     } 
   }
-}).addBatch({
+}}).addBatch({
   'COPY container/testcopyfile-2.txt if-unmodified-since past': {
     topic: api.put(container_name+'/testcopyfile-2.txt',{
       'content-length' : 0,
@@ -157,10 +159,13 @@ suite.addBatch({
     topic: api.del(container_name+'/testcopyfile-2.txt'),
     'should respond with a 204 OK':  assertStatus(204)
   }
-}).addBatch({
+}).addBatch({'TOPLEVEL':{
+  topic : function() {
+    setTimeout(this.callback,3000);
+  },
   'DELETE container' : {
     topic: api.del(container_name),
     'should respond with a 204 OK':  assertStatus(204)
   }
-});
+}});
 suite.export(module);

@@ -335,6 +335,13 @@ function run_once() {
   containers = fs.readdirSync(root_path);
   //console.log('running once: ' + containers);
   flush_event.counter = containers.length;
+  var keys = Object.keys(global_enum_base);
+  for (var x=0;x<keys.length;x++) {
+    var found = false;
+    for (var xx=0;xx<containers.length;xx++)
+      if (keys[x] == containers[xx]) {found = true; break; }
+    if (!found) delete global_enum_base[keys[x]];
+  }
   if (flush_event.counter > 0) {
     for (var i = 0; i < containers.length; i++)
       buck.emit('compact',i);

@@ -18,10 +18,9 @@ var util = require('util');
 var vows = require('vows');
 var assert = require('assert');
 var fs = require('fs');
-var config = JSON.parse(require('./utils').execSync("curl http://localhost:9981/~config")); //must be the config you actually use for the vblob  instance
 var test_date = new Date().valueOf();
 var container_name = '/sonic-test'+test_date;
-var suite = vows.describe('testbasic: using container '+container_name+' against driver '+config['current_driver']+' on localhost:'+config.port);
+var suite = vows.describe('testbasic: using container '+container_name);
 var parse_xml = require('./utils').parse_xml;
 var assertStatus = require('./utils').assertStatus;
 var api = require('./utils').api;
@@ -114,10 +113,13 @@ suite.addBatch({
     topic: api.del(container_name+'/A/B/C.txt'),
     'should respond with a 204 OK':  assertStatus(204)
   }
-}).addBatch({
+}).addBatch({'TOPLEVEL':{
+  topic : function() {
+    setTimeout(this.callback,3000);
+  },
   'DELETE container' : {
     topic: api.del(container_name),
     'should respond with a 204 OK':  assertStatus(204)
   }
-});
+}});
 suite.export(module);

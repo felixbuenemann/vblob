@@ -138,10 +138,6 @@ To run the common (non-driver-specific) unit tests, first make sure server.js is
     cd test
     ../node_modules/vows/bin/vows common_test/test*.js --spec
 
-To run the fs-driver tests from the same test folder do:
-
-    ../node_modules/vows/bin/vows fs_test/test*.js --spec
-
 NOTE: To avoid invoking vows via ../node_modules, install vows globally using `npm install -g vows`  
         
 ## Manual usage with curl

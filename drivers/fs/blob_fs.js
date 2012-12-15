@@ -365,7 +365,7 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
 {
   var resp_code, resp_header, resp_body;
   resp_code = resp_header = resp_body = null;
-  var c_path = fb.root_path + "/" + container_name+"/meta";
+  var c_path = fb.root_path + "/" + container_name+"/versions";
   if (Path.existsSync(c_path) === false)
   { //shortcut, remove directly
     var child = exec('rm -rf '+fb.root_path+"/"+container_name,
