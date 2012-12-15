@@ -207,13 +207,11 @@ buck.on('compact',function(buck_idx) {
           }
           var closure = function(bucket) {
             var ivt_enum = {};
-            var ivt_enum2 = {};
             var enum_base = global_enum_base[bucket];
             var keys1 = Object.keys(global_enum_base[bucket]);
             for (var nIdx1=0; nIdx1<keys1.length; nIdx1++) {
               var ver1 = get_key_fingerprint(keys1[nIdx1]);
               ivt_enum[keys1[nIdx1]] = ver1;
-              ivt_enum2[ver1] = keys1[nIdx1];
               _objects += enum_base[keys1[nIdx1]].length;
               //need to change for versionings
               if (enum_base[keys1[nIdx1]].length==1&&!enum_base[keys1[nIdx1]][0].etag) _objects--;
@@ -233,6 +231,7 @@ buck.on('compact',function(buck_idx) {
                   return;
                 }
                 fs.readFile(file1,function(err2,data) {
+                  //console.log('processing delta ' + data);
                   var update_evt = new events.EventEmitter();
                   update_evt.on('done',function() {
                     if (evt2.counter > 0) { evt2.emit('next',idx2+1); return; }
@@ -248,9 +247,6 @@ buck.on('compact',function(buck_idx) {
                     for (var key_idx = 0; key_idx < keys.length; key_idx++) {
                         var current_key = keys[key_idx];
                         var filename;
-                        if (ivt_enum2[current_key]) { //special handling for delete
-                          filename = current_key; current_key = ivt_enum2[current_key];
-                        } else
                         if (ivt_enum[current_key]) filename = ivt_enum[current_key];
                         else
                           filename = get_key_fingerprint(current_key);
@@ -268,7 +264,7 @@ buck.on('compact',function(buck_idx) {
                             if (old_size != -1) fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
                             if (old_size != -1 && enum_base[current_key][0].etag && !obj2.vblob_file_etag) _objects--; //deleting an object
                             if (old_size == -1) { old_size = 0; _objects += 1; if (!obj2.vblob_file_etag) _objects--; }
-                            if (!enum_base[current_key]) enum_base[current_key] = [{}];
+                            enum_base[current_key] = [{}];
                             enum_base[current_key][0].size = obj2.vblob_file_size;
                             if (obj2.vblob_file_etag) enum_base[current_key][0].etag = obj2.vblob_file_etag;
                             enum_base[current_key][0].lastmodified = obj2.vblob_update_time;
@@ -314,7 +310,6 @@ buck.on('compact',function(buck_idx) {
                 } catch (e) {
                 }
               } else if (enum_base_raw != '{}') { //work around for initial base creation
-                console.log('unzip fail');
                 flush_event.counter--;
                 if (flush_event.counter == 0) flush_event.emit('flush');
                 return;
@@ -338,9 +333,12 @@ buck.on('compact',function(buck_idx) {
 
 function run_once() {
   containers = fs.readdirSync(root_path);
+  //console.log('running once: ' + containers);
   flush_event.counter = containers.length;
-  for (var i = 0; i < containers.length; i++)
-    buck.emit('compact',i);
+  if (flush_event.counter > 0) {
+    for (var i = 0; i < containers.length; i++)
+      buck.emit('compact',i);
+  } else job_done = true;
 }
 
 if (long_running == true) {

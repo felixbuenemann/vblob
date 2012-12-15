@@ -52,9 +52,14 @@ buck.on('gc',function(buck_idx) {
     evt.Container = containers[buck_idx];
     evt.Batch = BATCH_NUM; evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand[-ts-cnt]
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand[-ts-cnt][-delete]
       var filename2 = filename;
-      var filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove cnt
+      var delete_marker = false;
+      if (filename2[filename2.length-1] == 'e') {
+        delete_marker = true;
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove -delete
+      }
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove cnt
       filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
       var seq_id = filename.substring(filename2.length+1);
       filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
@@ -82,10 +87,16 @@ buck.on('gc',function(buck_idx) {
           if (!enum_delta[obj.vblob_file_name])
             enum_delta[obj.vblob_file_name]=[];
           var obj2 = {};
-          obj2.vblob_file_etag=obj.vblob_file_etag;
-          obj2.vblob_update_time=obj.vblob_update_time;
-          obj2.vblob_seq_id=obj.vblob_seq_id;
-          obj2.vblob_file_size=obj.vblob_file_size;
+          if (delete_marker) {
+            obj2.vblob_update_time = new Date(parseInt(filename2,10)).toUTCString().replace(/UTC/ig,"GMT");
+            obj2.vblob_seq_id = seq_id;
+            obj2.vblob_file_size = 0;
+          } else {
+            obj2.vblob_file_etag=obj.vblob_file_etag;
+            obj2.vblob_update_time=obj.vblob_update_time;
+            obj2.vblob_seq_id=obj.vblob_seq_id;
+            obj2.vblob_file_size=obj.vblob_file_size;
+          }
           enum_delta[obj.vblob_file_name].push(obj2);
           obj2 = null;
           evt.Counter++; evt.Batch--;
@@ -93,15 +104,6 @@ buck.on('gc',function(buck_idx) {
             evt.Batch = BATCH_NUM; evt.emit('nextbatch');
           }
         } else {
-          if (err.code == 'ENOENT') {
-            to_delete[filename] = 1;
-            if (!enum_delta[filename])
-              enum_delta[filename]=[];
-            var obj2 = {};
-            obj2.vblob_update_time = new Date(parseInt(filename2,10)).toUTCString().replace(/UTC/ig,"GMT");
-            obj2.vblob_seq_id = seq_id;
-            obj2.vblob_file_size = 0;
-          }
           evt.Counter++; evt.Batch--;
           if (evt.Batch === 0) { evt.Batch = BATCH_NUM; evt.emit('nextbatch'); }
         }

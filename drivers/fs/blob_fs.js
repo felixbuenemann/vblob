@@ -793,7 +793,9 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
 //we create a delete marker without actual data here
   http.get("http://"+fb.seq_host+":"+fb.seq_port,function(res) {
     var seq_id = res.headers["seq-id"];
-    fs.symlink(c_path +"/" + TEMP_FOLDER + "/"+version_id, c_path + "/"+GC_FOLDER+"/" + version_id+"-"+seq_id,function(err) {
+    var obj = {vblob_file_name : filename};
+    fs.writeFile(c_path + "/"+GC_FOLDER+"/" + version_id+"-"+seq_id+"-delete",JSON.stringify(obj), function(err) {
+      obj = null;
       if (err) {
         var resp = {};
         error_msg(500,"InternalError",err,resp);
@@ -803,7 +805,7 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
       //add to gc cache
       gc_counter++;
       if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id+"-"+seq_id], meta:[{vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}], fn:filename}; else { gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id); gc_hash[container_name][key_fingerprint].meta.push({vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}); }
+      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id+"-"+seq_id+"-delete"], meta:[{vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}], fn:filename}; else { gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id+"-delete"); gc_hash[container_name][key_fingerprint].meta.push({vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}); }
       //ERROR?
       resp_code = 204;
       var header = common_header();
@@ -1251,9 +1253,8 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
       enum_raw = fs.readFileSync(fb.root_path+"/"+container_name+"/"+ENUM_FOLDER+"/base");
     } catch (e) {}
     zlib.unzip(enum_raw,function(err,buffer) {
-      enum_raw = null;
       try {
-        if (err) throw err;
+        if (err) {if (enum_raw != '{}') throw err; else buffer = enum_raw; }
         enum_queue[container_name].state='READY';
         enum_cache[container_name] = null;
 	enum_cache[container_name] = {tbl:JSON.parse(buffer)};
@@ -1268,15 +1269,33 @@ FS_blob.prototype.file_list = function(container_name, options, callback, fb)
               } catch (e) {
 	        var resp = {};
 	        error_msg(500,'InternalError',e,resp);
-	        callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+	        obj.cb(resp.resp_code, resp.resp_header, resp.resp_body, null);
               }
             }
           });
         }
+        enum_raw = null;
       } catch (e) {
+        enum_raw = null;
+        enum_queue[container_name].state='READY';
+        enum_cache[container_name] = null;
 	var resp = {};
 	error_msg(500,'InternalError',e,resp);
 	callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+        for (var idx=0; idx < enum_queue[container_name].queue.length; idx++) {
+          process.nextTick(function () {
+            if (enum_queue[container_name].queue.length > 0) {
+              var obj=enum_queue[container_name].queue.shift();
+              try {
+                query_files(obj.cn,obj.op,obj.cb,fb);
+              } catch (e) {
+	        var resp = {};
+	        error_msg(500,'InternalError',e,resp);
+	        obj.cb(resp.resp_code, resp.resp_header, resp.resp_body, null);
+              }
+            }
+          });
+        }
       }
       buffer = null;
     }); // end of unzip

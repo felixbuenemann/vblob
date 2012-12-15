@@ -29,7 +29,6 @@ buck.on('gc',function(buck_idx) {
     var trashes = Object.keys(gc_hash[containers[buck_idx]]); //second level key: file fingerprint
     var trash_dir = root_path + "/" + containers[buck_idx] + "/~gc";
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
-    fs.mkdir(enum_dir,"0775", function(err) {} );
     var enum_delta = {};
 
     for (var j = 0; j < trashes.length; j++)
