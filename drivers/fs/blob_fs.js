@@ -261,7 +261,7 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   if (option.quota) { this.quota = parseInt(option.quota,10); this.used_quota = 0; }
   else {this.quota = 100 * 1024 * 1024; this.used_quota=0;} //default 100MB
   if (option.obj_limit) { this.obj_limit = parseInt(option.obj_limit, 10); this.obj_count = 0; }
-  else {this.obj_limit=10000; this.obj_count=0;} //default 10,000 objects
+  else {this.obj_limit=100000; this.obj_count=0;} //default 100,000 objects
   if (option.seq_host) { this.seq_host = option.seq_host; } else this.seq_host = "localhost";
   if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); } else this.seq_port = 9876;
   if (option.meta_host) { this.meta_host = option.meta_host; } else this.meta_host = "localhost";
@@ -772,6 +772,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
     }); //end of renaming temp blob to blob/version
   }); //end of write meta file
   }).on('error', function(err) {
+    fs.unlink(temp_path+"-blob",function(e){});
     error_msg(500,"InternalError",err,resp);
     callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
   });//end of getting sequence

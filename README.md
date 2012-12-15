@@ -89,7 +89,7 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
                     "ec_exepath": "<path to ec js file, default is `drivers/fs/fs_ec.js` >",
                     "ec_interval": <ms per ec execution, default is `1,500` (1.5 sec) >,
                     "quota": <maximum number of bytes allowed to store, default is 100MB >,
-                    "obj_limit" : <maximum number of blobs allowed to store, default is 10,000 >,
+                    "obj_limit" : <maximum number of blobs allowed to store, default is 100,000 >,
                     "seq_host" : <ip/hostname for the sequence server, default is localhost>,
                     "seq_port" : <port for the sequence server, default is 9876>,
                     "meta_host" : <ip/hostname for the metadata server, default is lcoalhost>,
