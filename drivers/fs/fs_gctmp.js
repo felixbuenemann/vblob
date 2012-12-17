@@ -80,16 +80,17 @@ buck.on('gc',function(buck_idx) {
             fs.unlink(fdir_path+"/"+fingerprint+"-"+seq_id,function(err) {} );
           } else {
             //console.log('redoing ' + filename);
-            var f_written = false;
+            var f_written = true;
             try { fs.symlinkSync(trash_dir+"/"+filename, gc_dir+"/"+filename); }
             catch (e) {
-              if (e.code == 'EEXIST') f_written = true;
+              if (e.code == 'EEXIST') f_written = true; else f_written = false;
             }
             if (!f_written) { //failed to redo this entry, skip
               evt.Counter++; evt.Batch--
               if (evt.Batch === 0) {
                 evt.Batch = BATCH_NUM; evt.emit('nextbatch');
               }
+              return;
             }
           }
         }
