@@ -561,14 +561,13 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   var key_fingerprint = get_key_fingerprint(filename);
 //step2.2 gen unique version id
   var version_id = generate_version_id(key_fingerprint);
-//step3 create blob file in ~tmp (probably create parent folders)
   var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
   var prefix_path = prefix1 + "/" + prefix2 + "/";
   var temp_path = c_path + "/" + TEMP_FOLDER +"/" + version_id;
   var blob_path = c_path + "/blob/" + prefix_path + version_id;
   var temp_blob_path = temp_path + "-blob";
   var meta_json = { vblob_file_name : filename, vblob_file_path : "blob/"+prefix_path+version_id };
-//step 3.1 create folders is needed
+//step 3 synchronously creating folders needed (in order not to lose any data events)
   if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
   if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
 //step 4 stream blob
@@ -646,7 +645,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
         continue; //actual file size is already calculated
       } else opts[obj_key] = create_meta_data[obj_key];
     }
-    //step 5 starting to re-link meta
+    //step 5 starting to write meta and commit
     fb.file_create_meta(container_name,filename,temp_path,opts,callback,fb,!data.connection);
   };
 
@@ -695,11 +694,12 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
   doc.vblob_update_time = dDate.toUTCString().replace(/UTC/ig, "GMT"); //RFC 822
   doc.vblob_file_name = filename;
   var seq_id;
+  //step 5.6 getting a globally ordered sequence(tx) id from sequence server
   http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
   seq_id = res.headers["seq-id"];
   doc.vblob_seq_id = seq_id;
   doc.vblob_file_path = doc.vblob_file_path.substring(0,doc.vblob_file_path.lastIndexOf('/')+1)+doc.vblob_file_fingerprint+"-"+seq_id; 
-  //temp_path will be writen twice, to prevent losing information when crash in the middle of an upload
+  //step 5.7 writing to meta
   fs.writeFile(temp_path+"-"+seq_id,JSON.stringify(doc), function(err) {
     if (err) {
       fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
@@ -722,6 +722,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
     } else {
       resp.resp_header = header;
     }
+    //step 5.8 renaming blob from tmp folder to blob folder with correct seq-id in name
     fs.rename(temp_path+"-blob",fb.root_path+"/"+container_name + "/"+doc.vblob_file_path, function(err) {
       if (err) {
         fb.logger.error( ("In renaming file "+filename+" blob in container_name "+container_name+" "+err));
@@ -733,42 +734,52 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
         fs.unlink(temp_path+"-blob",function(err){});
         return;
       }
-      //step 5.6 add to /~GC
-      fs.symlink(temp_path+"-"+seq_id, fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id,function(err) {
+      //step 6 hard link to versions. This is a commit, and after this step it's always going to be re-done in recovery
+      var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
+        //link to version, so version link > 1, now gctmp will consider it a committed put
+      fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
         if (err) {
+          fs.unlink(temp_path+"-"+seq_id,function(err) {});
+          fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
           fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
           if (resp !== null) {
             error_msg(500,"InternalError",err,resp);
             callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
           }
-          fs.unlink(temp_path+"-"+seq_id,function(err) {});
-          fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
           return;
         }
-      //step 6 mv to versions
-        var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-        //link to version, so version link > 1, gc won't remove it at this point
-        fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
-          if (err) {
-            fs.unlink(fb.root_path + "/" + container_name + "/" +GC_FOLDER +"/" + doc.vblob_file_version+"-"+seq_id);
-            fs.unlink(temp_path+"-"+seq_id,function(err) {});
-            fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
-            fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
-            if (resp !== null) {
-              error_msg(500,"InternalError",err,resp);
-              callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-            }
-            return;
-          }
+      //step 6.1 write an entry file  to /~GC. This is optional because either gcfc takes care of it most of the time, or gctmp+gc will take care of it in recovery
           //add to gc cache
           gc_counter++;
           if (!gc_hash[container_name]) gc_hash[container_name] = {};
-          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) gc_hash[container_name][doc.vblob_file_fingerprint] = {ver:[doc.vblob_file_version+"-"+seq_id], meta:[{vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}], fn:doc.vblob_file_name}; else { gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id); gc_hash[container_name][doc.vblob_file_fingerprint].meta.push({vblob_file_etag:doc.vblob_file_etag, vblob_update_time:doc.vblob_update_time, vblob_seq_id:doc.vblob_seq_id, vblob_file_size:doc.vblob_file_size}); }
+          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) { 
+            gc_hash[container_name][doc.vblob_file_fingerprint] = {
+              ver:[doc.vblob_file_version+"-"+seq_id],
+              meta:[
+                     {
+                       vblob_file_etag:doc.vblob_file_etag,
+                       vblob_update_time:doc.vblob_update_time,
+                       vblob_seq_id:doc.vblob_seq_id,
+                       vblob_file_size:doc.vblob_file_size
+                     }
+                   ],
+              fn:doc.vblob_file_name
+            }; 
+          } else {
+            gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id);
+            gc_hash[container_name][doc.vblob_file_fingerprint].meta.push(
+              {
+                vblob_file_etag:doc.vblob_file_etag,
+                vblob_update_time:doc.vblob_update_time,
+                vblob_seq_id:doc.vblob_seq_id,
+                vblob_file_size:doc.vblob_file_size
+              }
+            );
+          }
           fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
           callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
-          fs.unlink(temp_path+"-"+seq_id, function(err){});
-        }); //end of linking temp to version
-      }); //end of posting gc
+          //step 6.2 remove meta file under tmp folder, can't remove here, will be taken care of in gcfc or gctmp+gc
+      }); //end of linking temp to version
     }); //end of renaming temp blob to blob/version
   }); //end of write meta file
   }).on('error', function(err) {
@@ -806,7 +817,28 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
       //add to gc cache
       gc_counter++;
       if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][key_fingerprint]) gc_hash[container_name][key_fingerprint] = {ver:[version_id+"-"+seq_id+"-delete"], meta:[{vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}], fn:filename}; else { gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id+"-delete"); gc_hash[container_name][key_fingerprint].meta.push({vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"), vblob_seq_id:seq_id, vblob_file_size:0}); }
+      if (!gc_hash[container_name][key_fingerprint]) {
+        gc_hash[container_name][key_fingerprint] = {
+          ver:[version_id+"-"+seq_id+"-delete"],
+          meta:[
+                 {
+                   vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"),
+                   vblob_seq_id:seq_id,
+                   vblob_file_size:0
+                 }
+               ],
+          fn:filename
+        }; 
+      } else { 
+        gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id+"-delete");
+        gc_hash[container_name][key_fingerprint].meta.push(
+          {
+            vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"),
+            vblob_seq_id:seq_id,
+            vblob_file_size:0
+          }
+        );
+      }
       //ERROR?
       resp_code = 204;
       var header = common_header();

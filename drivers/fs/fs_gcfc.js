@@ -28,6 +28,7 @@ buck.on('gc',function(buck_idx) {
   try {
     var trashes = Object.keys(gc_hash[containers[buck_idx]]); //second level key: file fingerprint
     var trash_dir = root_path + "/" + containers[buck_idx] + "/~gc";
+    var tmp_dir = root_path + "/" + containers[buck_idx] + "/~tmp";
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
     var enum_delta = {};
 
@@ -49,8 +50,13 @@ buck.on('gc',function(buck_idx) {
     enum_delta = null;
     for (var j = 0; j < trashes.length; j++) {
       var filename = trashes[j];
-    for (var xx = 0; xx < gc_hash[containers[buck_idx]][filename].ver.length; xx++)
-      fs.unlink(trash_dir+"/"+gc_hash[containers[buck_idx]][filename].ver[xx], function(err) {} );
+      for (var xx = 0; xx < gc_hash[containers[buck_idx]][filename].ver.length; xx++) {
+        var fn = gc_hash[containers[buck_idx]][filename].ver[xx];
+        if (fn.charAt(fn.length-1) == 'e') //delete gc entry, remove from gc
+          fs.unlink(trash_dir+"/"+ fn, function(err) {} );
+        else //remove tmp entry
+          fs.unlink(tmp_dir+"/"+ fn, function(err) {});
+      }
     }
   } catch (err) {
     console.error(err);
