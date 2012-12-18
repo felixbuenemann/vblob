@@ -127,9 +127,9 @@ function start_gc(option,fb)
   var gc_interval;
   var gcfc_interval;
   var gctmp_interval;
-  try { if (isNaN(gc_interval = parseInt(option.gc_interval,10))) throw 'isNaN'; } catch (err) { gc_interval = 3600000; }
+  try { if (isNaN(gc_interval = parseInt(option.gc_interval,10))) throw 'isNaN'; } catch (err) { gc_interval = 60000; }
   try { if (isNaN(gcfc_interval = parseInt(option.gcfc_interval,10))) throw 'isNaN'; } catch (err) { gcfc_interval = 300; }
-  try { if (isNaN(gctmp_interval = parseInt(option.gctmp_interval,10))) throw 'isNaN'; } catch (err) { gctmp_interval = 3600000; }
+  try { if (isNaN(gctmp_interval = parseInt(option.gctmp_interval,10))) throw 'isNaN'; } catch (err) { gctmp_interval = 60000; }
   var gctmp_exepath = option.gctmp_exepath ? option.gctmp_exepath : __dirname+"/fs_gctmp.js";
   fb.node_exepath = node_exepath;
   fb.gc_exepath = gc_exepath;
@@ -197,25 +197,6 @@ function start_gc(option,fb)
           gctmp_status = 0; //finished set to 0
         } );
     }, gctmp_interval);
-  //gc left over files
-  var current_ts = new Date().valueOf();
-  setTimeout(function() {
-    fb.logger.info('start to collect left over tmp files');
-    exec(node_exepath + " " + gctmp_exepath + " " + fb.root_path + " --tmp " + tmp_path + " --ts "+current_ts+" > /dev/null",
-        function(error,stdout, stderr) {
-          if (error || stderr) {
-            fb.logger.warn('error in gc left over tmp files: ' + error?error:''+'-- '+stderr?stderr:'');
-          }
-          fb.logger.info('left over tmp files collected; now start to collect left over gc files');
-          exec(node_exepath + " " + gc_exepath + " " + fb.root_path + " --tmp " + tmp_path + " --ts "+current_ts+" ",
-              function(error2,stdout2, stderr2) {
-                if (error2 || stderr2) {
-                  fb.logger.warn('error in gc left over gc files: ' + error2?error2:''+'-- '+stderr2?stderr2:'');
-                }
-                else fb.logger.info('left over gc files collected');
-              } );
-        } );
-  },500);
 }
 
 function start_quota_gathering(fb)

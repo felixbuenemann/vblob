@@ -27,7 +27,8 @@ var BATCH_NUM = 1;
 var root_path = argv[2];
 var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
-var MAX_TIMEOUT = 6 * 3600 * 1000; //6 hrs
+var MAX_TIMEOUT = 15 * 60 * 1000; //15 minutes for blob upload
+var MAX_TIMEOUT2 = 60 * 1000; //1 min for committing a transaction
 var containers = fs.readdirSync(root_path);
 console.log(containers);
 var buck = new events.EventEmitter();
@@ -56,9 +57,24 @@ buck.on('gc',function(buck_idx) {
           return;
         }
         var mtime = new Date(stats.mtime).valueOf();
-        if ( !force &&
-             (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
-               || !gc_timestamp && current_ts < mtime + MAX_TIMEOUT) ){
+        if ( !force 
+             &&
+             (
+               (filename.charAt(filename.length-1) == 'b' &&  //for -blob file, check MAX_TIMEOUT window
+                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                  || 
+                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
+                 )
+               )  
+             ||(filename.charAt(filename.length-1) != 'b' &&        //for meta file, check MAX_TIMEOUT2 window
+                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                  || 
+                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT2
+                 )
+               )
+             )
+           )
+        {
           evt.Counter++; evt.Batch--; //still within a valid window
           if (evt.Batch === 0) {
             evt.Batch = BATCH_NUM; evt.emit('nextbatch');
