@@ -242,7 +242,7 @@ buck.on('compact',function(buck_idx) {
                   });//end of update_evt done
                   if (!err2) {
                     var obj = {};
-                    try { obj = JSON.parse(data); } catch (e) { } //in case this file is truncated or corrupted
+                    try { obj = JSON.parse(data); } catch (e) {update_evt.emit('done'); return; } //in case this file is truncated or corrupted, TODO: possible race condition. reading partial content while gctmp/gcfc is still writing
                     var keys = Object.keys(obj);
                     for (var key_idx = 0; key_idx < keys.length; key_idx++) {
                         var current_key = keys[key_idx];
