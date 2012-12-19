@@ -80,8 +80,6 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
                     "node_exepath": "<path to node executable - default is `node` >",
                     "collector" : <enable gc and enumeration - default is `true`, NOTE: must be limited to one instance >,
                     "tmp_path" : "<path to a global tmp folder for storing runtime temp files, default is `/tmp` >",
-                    "gc_exepath": "<path to gc js file, default is `drivers/fs/fs_gc.js` >",
-                    "gc_interval": <ms per gc execution, default is `60,000` (1 min) >,
                     "gcfc_exepath": "<path to lightweight gc js file, default is `drivers/fs/fs_gcfc.js` >",
                     "gcfc_interval": <ms per lightweiht gc execution, default is `300` (0.3 sec) >,
                     "gctmp_exepath": "<path to tmp folder gc js file, default is `drivers/fs/fs_gctmp.js` >",

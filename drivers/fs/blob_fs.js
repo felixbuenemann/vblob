@@ -15,7 +15,6 @@ var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
 var base64_char_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 var TEMP_FOLDER = "~tmp";
-var GC_FOLDER = "~gc";
 var ENUM_FOLDER = "~enum";
 var MAX_COPY_RETRY = 3;
 var MAX_READ_RETRY = 3;
@@ -122,37 +121,17 @@ function start_gc(option,fb)
   var gc_status = 0; //1 = started
   var tmp_path = option.tmp_path ? option.tmp_path : "/tmp";
   var node_exepath = option.node_exepath ? option.node_exepath : process.execPath;
-  var gc_exepath = option.gc_exepath ? option.gc_exepath : __dirname+"/fs_gc.js";
   var gcfc_exepath = option.gcfc_exepath ? option.gcfc_exepath : __dirname+"/fs_gcfc.js";
-  var gc_interval;
   var gcfc_interval;
   var gctmp_interval;
-  try { if (isNaN(gc_interval = parseInt(option.gc_interval,10))) throw 'isNaN'; } catch (err) { gc_interval = 60000; }
   try { if (isNaN(gcfc_interval = parseInt(option.gcfc_interval,10))) throw 'isNaN'; } catch (err) { gcfc_interval = 300; }
   try { if (isNaN(gctmp_interval = parseInt(option.gctmp_interval,10))) throw 'isNaN'; } catch (err) { gctmp_interval = 60000; }
   var gctmp_exepath = option.gctmp_exepath ? option.gctmp_exepath : __dirname+"/fs_gctmp.js";
   fb.node_exepath = node_exepath;
-  fb.gc_exepath = gc_exepath;
   fb.gcfc_exepath = gcfc_exepath;
   fb.gctmp_exepath = gctmp_exepath;
-  fb.gc_interval = gc_interval;
   fb.gcfc_interval = gcfc_interval;
   fb.gctmp_interval = gctmp_interval;
-  fb.gcid = setInterval(function() {
-    if (gc_status === 1) return; //already a gc process running
-    gc_status = 1;
-    exec(node_exepath + " " + gc_exepath + " " + fb.root_path + " --tmp " + tmp_path + " > /dev/null",
-        function(error,stdout, stderr) {
-          gc_status = 0; //finished set to 0
-          if (error || stderr) {
-            var msg = 'garbage collector error: ';
-            try {
-              msg += error?error:''+'-- '+stderr?stderr:'';
-            } catch (e) { }
-            fb.logger.warn(msg);
-          }
-        } );
-    }, gc_interval);
   //gc from cache
   var gcfc_status = 0;
   fb.gcfcid = setInterval(function() {
@@ -307,10 +286,6 @@ FS_blob.prototype.container_create = function(container_name,callback,fb)
       if (Path.existsSync(c_path+"/"+TEMP_FOLDER) === false)
       {
         fs.mkdirSync(c_path+"/"+TEMP_FOLDER,"0775");
-      }
-      if (Path.existsSync(c_path+"/"+GC_FOLDER) === false)
-      {
-        fs.mkdirSync(c_path+"/"+GC_FOLDER,"0775");
       }
       if (Path.existsSync(c_path+"/"+ENUM_FOLDER) === false)
       {
@@ -729,7 +704,6 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           }
           return;
         }
-      //step 6.1 write an entry file  to /~GC. This is optional because either gcfc takes care of it most of the time, or gctmp+gc will take care of it in recovery
           //add to gc cache
           gc_counter++;
           if (!gc_hash[container_name]) gc_hash[container_name] = {};
@@ -759,7 +733,6 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           }
           fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
           callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
-          //step 6.2 remove meta file under tmp folder, can't remove here, will be taken care of in gcfc or gctmp+gc
       }); //end of linking temp to version
     }); //end of renaming temp blob to blob/version
   }); //end of write meta file
@@ -787,7 +760,7 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
   http.get("http://"+fb.seq_host+":"+fb.seq_port,function(res) {
     var seq_id = res.headers["seq-id"];
     var obj = {vblob_file_name : filename};
-    fs.writeFile(c_path + "/"+GC_FOLDER+"/" + version_id+"-"+seq_id+"-delete",JSON.stringify(obj), function(err) {
+    fs.writeFile(c_path + "/"+TEMP_FOLDER+"/" + version_id+"-"+seq_id+"-delete",JSON.stringify(obj), function(err) {
       obj = null;
       if (err) {
         var resp = {};

@@ -23,12 +23,12 @@ for (var ii = 0; ii < argv.length; ii++) {
     continue;
   }
 }
-var BATCH_NUM = 1;
 var root_path = argv[2];
 var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
 var MAX_TIMEOUT = 15 * 60 * 1000; //15 minutes for blob upload
 var MAX_TIMEOUT2 = 60 * 1000; //1 min for committing a transaction
+var MAX_TRIES = 5;
 var containers = fs.readdirSync(root_path);
 console.log(containers);
 var buck = new events.EventEmitter();
@@ -37,92 +37,308 @@ buck.on('gc',function(buck_idx) {
   try {
     var trashes = fs.readdirSync(root_path + "/" + containers[buck_idx] + "/~tmp");
     var trash_dir = root_path + "/" + containers[buck_idx] + "/~tmp";
-    var gc_dir = root_path + "/" + containers[buck_idx] + "/~gc";
+    //var gc_dir = root_path + "/" + containers[buck_idx] + "/~gc";
     var evt = new events.EventEmitter();
+    var to_delete = {};
+    var enum_delta = {};
+    var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
     evt.Container = containers[i];
-    evt.Batch = BATCH_NUM; evt.Counter = 0;
+    evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-ts-cnt]
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-ts-cnt]/[-ts-cnt-delete]/[-ts-cnt-nop]
+      var ftype = filename.charAt(filename.length-1);
+      var key_fingerprint;
+      var seq_id;
+      var ts; //timestamp in filename
+      if (ftype == 'b') { //blob
+        var filename2 = filename;
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
+      } else if (ftype == 'e') { //delete
+        var filename2 = filename;
+        var cnt;
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove [delete]
+        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
+        seq_id = ts+"-"+cnt;
+      } else if (ftype == 'p') { //nop
+        var filename2 = filename;
+        var cnt;
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove [nop]
+        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+        seq_id = ts+"-"+cnt;
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
+      } else { //normal meta
+        var filename2 = filename;
+        var cnt;
+        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
+        seq_id = ts+"-"+cnt;
+      }
       //console.log(filename);
       var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/blob/" + prefix1 + "/" + prefix2;
       var fver_path = root_path + "/" + evt.Container + "/versions/" + prefix1 + "/" + prefix2;
-      fs.stat(trash_dir+"/"+filename, function(err,stats) {
-        if (err) {
-          console.log(err);
-          evt.Counter++; evt.Batch--
-          if (evt.Batch === 0) {
-            evt.Batch = BATCH_NUM; evt.emit('nextbatch');
-          }
-          return;
-        }
-        var mtime = new Date(stats.mtime).valueOf();
-        if ( !force 
-             &&
-             (
-               (filename.charAt(filename.length-1) == 'b' &&  //for -blob file, check MAX_TIMEOUT window
-                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
-                  || 
-                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
-                 )
-               )  
-             ||(filename.charAt(filename.length-1) != 'b' &&        //for meta file, check MAX_TIMEOUT2 window
-                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
-                  || 
-                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT2
-                 )
+      var mtime = parseInt(ts);
+      if ( !force 
+           &&
+           (
+             ((ftype == 'b' || ftype == 'p') &&  //for blob or nop file, check MAX_TIMEOUT window
+               (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                || 
+                !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
+               )
+             )  
+           ||((ftype != 'b' && ftype != 'p') &&        //for meta file or delete, check MAX_TIMEOUT2 window
+               (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                || 
+                !gc_timestamp && current_ts < mtime + MAX_TIMEOUT2
                )
              )
            )
-        {
-          evt.Counter++; evt.Batch--; //still within a valid window
-          if (evt.Batch === 0) {
-            evt.Batch = BATCH_NUM; evt.emit('nextbatch');
-          }
+         )
+      {
+        evt.Counter++; 
+        evt.emit('nextbatch');
+        return;
+      }
+      fs.stat(trash_dir+"/"+filename, function(err,stats) {
+        if (err) {
+          console.log(err);
+          evt.Counter++;
+          evt.emit('nextbatch');
           return;
         }
-        if (filename.charAt(filename.length-1)=='b') {
+        if (ftype == 'b') {
           //console.log('cleaning up ' + filename);
           //temp blob
-        } else {
-            //format: fingerprint-ts-rand1-rand2-[ts-cnt]
-            var seq_dash_pos = filename.lastIndexOf('-', filename.lastIndexOf('-')-1);
-            var seq_id = filename.substr(seq_dash_pos+1);
-            var fingerprint = filename.substring(0,filename.lastIndexOf('-',filename.lastIndexOf('-',filename.lastIndexOf('-',seq_dash_pos-1)-1)-1));
-            //console.log(fingerprint+" "+seq_id);
-          if (stats.nlink < 2) {
-            //uncommitted upload, remove blob
-            //console.log('undoing '+fingerprint+" "+seq_id);
-            fs.unlink(fdir_path+"/"+fingerprint+"-"+seq_id,function(err) {} );
-          } else {
-            //console.log('redoing ' + filename);
-            var f_written = true;
-            try { fs.symlinkSync(trash_dir+"/"+filename, gc_dir+"/"+filename); }
-            catch (e) {
-              if (e.code == 'EEXIST') f_written = true; else f_written = false;
-            }
-            if (!f_written) { //failed to redo this entry, skip
-              evt.Counter++; evt.Batch--
-              if (evt.Batch === 0) {
-                evt.Batch = BATCH_NUM; evt.emit('nextbatch');
-              }
+          fs.unlink(trash_dir+"/"+filename, function(err) {
+            evt.Counter++;
+            evt.emit('nextbatch');
+          });
+        } else if (ftype == 'p') { //nop file
+          fs.readFile(trash_dir+"/"+ filename, function(err,fn) {
+            if (err) {
+              evt.Counter++;
+              evt.emit('nextbatch');
               return;
             }
+            if (stats.nlink >= 2) { //remove blob and meta and this file
+              //fs.writeFile(gc_dir+"/"+filename,"nop link=2 "+filename+" "+fn,function(err) {});
+              fs.unlink(trash_dir+"/"+fn,function(err) {
+                fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
+                fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                  fs.unlink(trash_dir+"/"+filename, function(err) {
+                    evt.Counter++;
+                    evt.emit('nextbatch');
+                  });
+                });
+              });
+            } else {
+              fs.link(trash_dir+"/"+filename, fver_path+"/"+key_fingerprint+"-"+seq_id, function(err) {
+                if (!err) {
+                  //fs.writeFile(gc_dir+"/"+filename,"nop relink successful "+filename+" "+fn,function(err) {});
+                  fs.unlink(trash_dir+"/"+fn,function(err) {
+                    fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
+                    fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                      fs.unlink(trash_dir+"/"+filename, function(err) {
+                        evt.Counter++;
+                        evt.emit('nextbatch');
+                      });
+                    });
+                  });
+                } else {
+                  //check error code
+                  if (err.code == 'EEXIST') { //already there
+                    fs.stat(fver_path+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
+                      if (!err2) {
+                        if (stats.ino == stats2.ino) //linked by others, still consider succeeded
+                        {
+                          //fs.writeFile(gc_dir+"/"+filename,"nop linked by others "+filename+" "+fn,function(err) {});
+                          fs.unlink(trash_dir+"/"+fn,function(err) {
+                            fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
+                            fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                              fs.unlink(trash_dir+"/"+filename, function(err) {
+                                evt.Counter++;
+                                evt.emit('nextbatch');
+                              });
+                            });
+                          });
+                        } else { //others already linked ver, remove nop only
+                          fs.unlink(trash_dir+"/"+filename,function(err){
+                            evt.Counter++;
+                            evt.emit('nextbatch');
+                          });
+                        }
+                      } else {
+                        //may be some temp errors, leave to next round
+                        evt.Counter++;
+                        evt.emit('nextbatch');
+                      }
+                    });
+                  } else {
+                    //may be some temp errors, leave to next round
+                    evt.Counter++;
+                    evt.emit('nextbatch');
+                  }
+                }
+              });
+            }
+          });
+        } else if (ftype == 'e') { //delete file
+          //always redo
+          fs.readFile(trash_dir+"/"+filename, function(err,data) {
+            if (!err) {
+              to_delete[filename] = 1;
+              var obj = JSON.parse(data);
+              if (!enum_delta[obj.vblob_file_name])
+                enum_delta[obj.vblob_file_name]=[];
+              var obj2 = {};
+              obj2.vblob_update_time = new Date(mtime).toUTCString().replace(/UTC/ig,"GMT");
+              obj2.vblob_seq_id = seq_id;
+              obj2.vblob_file_size = 0;
+              enum_delta[obj.vblob_file_name].push(obj2);
+              obj2 = null;
+              evt.Counter++;
+              evt.emit('nextbatch');
+            } else {
+              evt.Counter++;
+              evt.emit('nextbatch');
+            }
+          });
+        } else { //normal put 
+          if (stats.nlink < 2) { //gen nop, try remove
+            //uncommitted upload, remove blob
+            //nop = fingerprint-ts-rand1-rand2-seq_id-nop
+            var fn = key_fingerprint+"-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*1000)+"-"+seq_id+"-nop";
+            fs.writeFile(trash_dir+"/"+fn,""+filename,function(err) {
+              if (err) {
+                evt.Counter++;
+                evt.emit('nextbatch');
+                return;
+              }
+              fs.link(trash_dir+"/"+fn,fver_path+"/"+key_fingerprint+"-"+seq_id, function(err) {
+                if (!err) {
+                  //fs.writeFile(gc_dir+"/"+filename,"successfully linked "+fn,function(err) {});
+                  fs.unlink(trash_dir+"/"+filename, function(err) {
+                    fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
+                    fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                      fs.unlink(trash_dir+"/"+fn, function(err) {
+                        evt.Counter++;
+                        evt.emit('nextbatch');
+                      });
+                    });
+                  });
+                } else {
+                  //check error code
+                  if (err.code == 'EEXIST') { //already there
+                    fs.stat(trash_dir+"/"+fn,function(err3,stats3) {
+                    if (!err3)
+                    fs.stat(fver_path+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
+                      if (!err2) {
+                        if (stats3.ino == stats2.ino) //linked by others, still consider succeeded
+                        {
+                          //fs.writeFile(gc_dir+"/"+filename,"linked by others "+fn+" "+stats3+" "+stats2,function(err) {});
+                          fs.unlink(trash_dir+"/"+filename, function(err) {
+                            fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
+                            fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                              fs.unlink(trash_dir+"/"+fn, function(err) {
+                                evt.Counter++;
+                                evt.emit('nextbatch');
+                              });
+                            });
+                          });
+                        } else { //others already linked ver, remove nop only
+                          fs.unlink(trash_dir+"/"+fn,function(err){
+                            evt.Counter++;
+                            evt.emit('nextbatch');
+                          });
+                        }
+                      } else {
+                        //may be some temp errors, leave to next round
+                        evt.Counter++;
+                        evt.emit('nextbatch');
+                      }
+                    }); else { //err3, leave it
+                       evt.Counter++;
+                       evt.emit('nextbatch');
+                    }
+                    });
+                  } else {
+                    //may be some temp errors, leave to next round
+                    evt.Counter++;
+                    evt.emit('nextbatch');
+                  }
+                }
+              }); 
+            });
+          } else { //read meta 
+            //redo
+            fs.readFile(trash_dir+"/"+filename, function(err,data) {
+              if (!err) {
+                to_delete[filename] = 1;
+                var obj = JSON.parse(data);
+                if (!enum_delta[obj.vblob_file_name])
+                  enum_delta[obj.vblob_file_name]=[];
+                var obj2 = {};
+                obj2.vblob_file_etag=obj.vblob_file_etag;
+                obj2.vblob_update_time=obj.vblob_update_time;
+                obj2.vblob_seq_id=obj.vblob_seq_id;
+                obj2.vblob_file_size=obj.vblob_file_size;
+                enum_delta[obj.vblob_file_name].push(obj2);
+                obj2 = null;
+                evt.Counter++;
+                evt.emit('nextbatch');
+              } else {
+                evt.Counter++;
+                evt.emit('nextbatch');
+              }
+            });
           }
         }
-        fs.unlink(trash_dir+"/"+filename,function() {
-          evt.Counter++; evt.Batch--
-          if (evt.Batch === 0) {
-            evt.Batch = BATCH_NUM; evt.emit('nextbatch');
-          }
-        });
       });
-    });
+    }); //end of next
     evt.on('nextbatch',function() {
-      //console.log('counter ' + evt.Counter);
-      if (evt.Counter + BATCH_NUM > trashes.length) evt.Batch = trashes.length - evt.Counter;
-      for (var i = evt.Counter; i < trashes.length && i < evt.Counter + BATCH_NUM; i++) {
-        evt.emit('next', i);
+      if (evt.Counter < trashes.length) 
+        evt.emit('next', evt.Counter);
+      else {
+        //write to delta file and unlink to_delete list
+        var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+        var sync_cnt = 0;
+        var failed_cnt = 0;
+        while (sync_cnt < MAX_TRIES) {
+          try {
+            fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
+          } catch (e) { failed_cnt++; }
+          sync_cnt++;
+          if (failed_cnt < sync_cnt) break;
+        }
+        if (failed_cnt < sync_cnt) {
+          //now safely remove the gc files
+          var keys = Object.keys(to_delete);
+          for (var idx=0; idx<keys.length; idx++)
+            fs.unlink(trash_dir+"/"+keys[idx],function(e) {});
+        }
+        enum_delta = null;
       }
     });
     evt.emit('nextbatch');
