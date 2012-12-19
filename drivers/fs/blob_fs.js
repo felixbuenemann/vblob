@@ -16,8 +16,8 @@ var MAX_LIST_LENGTH = 1000; //max number of files to list
 var base64_char_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 var TEMP_FOLDER = "~tmp";
 var ENUM_FOLDER = "~enum";
-var MAX_COPY_RETRY = 3;
-var MAX_READ_RETRY = 3;
+var MAX_COPY_RETRY = 2;
+var MAX_READ_RETRY = 2;
 var MAX_DEL_RETRY = 6;
 var gc_hash = {}; //for caching gc info;
 var gc_counter = 0; //counter for gc info
@@ -118,7 +118,6 @@ function start_collector(option,fb)
 function start_gc(option,fb)
 {
   gc_hash = null; gc_hash = {}; gc_counter = 0;
-  var gc_status = 0; //1 = started
   var tmp_path = option.tmp_path ? option.tmp_path : "/tmp";
   var node_exepath = option.node_exepath ? option.node_exepath : process.execPath;
   var gcfc_exepath = option.gcfc_exepath ? option.gcfc_exepath : __dirname+"/fs_gcfc.js";
@@ -420,17 +419,6 @@ function generate_version_id(key)
   return key+'-'+da+'-'+Math.floor(Math.random()*1000)+'-'+Math.floor(Math.random()*1000);
 }
 
-/*
-    physical path: /container_name/prefix/filename
-    prefix calculaton: prefix of PREFIX_LENGTH chars of  md5 digest of filename
-*/
-
-function remove_uploaded_file(fdir_path)
-{
-  fs.unlink(fdir_path,function(err) {
-  });
-}
-
 //use prefix_cache to avoid unnecessary sync folder creation
 function create_prefix_folders(prefix_array, callback)
 {
@@ -586,7 +574,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
         }
         fb.logger.error( (filename+' md5 not match: uploaded: '+ md5_base64 + ' specified: ' + create_options['content-md5']));
         data.destroy();
-        remove_uploaded_file(temp_blob_path);
+        fs.unlink(temp_blob_path,function(err) {});
         return;
       }
     }
@@ -704,35 +692,35 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
           }
           return;
         }
-          //add to gc cache
-          gc_counter++;
-          if (!gc_hash[container_name]) gc_hash[container_name] = {};
-          if (!gc_hash[container_name][doc.vblob_file_fingerprint]) { 
-            gc_hash[container_name][doc.vblob_file_fingerprint] = {
-              ver:[doc.vblob_file_version+"-"+seq_id],
-              meta:[
-                     {
-                       vblob_file_etag:doc.vblob_file_etag,
-                       vblob_update_time:doc.vblob_update_time,
-                       vblob_seq_id:doc.vblob_seq_id,
-                       vblob_file_size:doc.vblob_file_size
-                     }
-                   ],
-              fn:doc.vblob_file_name
-            }; 
-          } else {
-            gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id);
-            gc_hash[container_name][doc.vblob_file_fingerprint].meta.push(
-              {
-                vblob_file_etag:doc.vblob_file_etag,
-                vblob_update_time:doc.vblob_update_time,
-                vblob_seq_id:doc.vblob_seq_id,
-                vblob_file_size:doc.vblob_file_size
-              }
-            );
-          }
-          fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
-          callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
+        //add to gc cache
+        gc_counter++;
+        if (!gc_hash[container_name]) gc_hash[container_name] = {};
+        if (!gc_hash[container_name][doc.vblob_file_fingerprint]) { 
+          gc_hash[container_name][doc.vblob_file_fingerprint] = {
+            ver:[doc.vblob_file_version+"-"+seq_id],
+            meta:[
+                   {
+                     vblob_file_etag:doc.vblob_file_etag,
+                     vblob_update_time:doc.vblob_update_time,
+                     vblob_seq_id:doc.vblob_seq_id,
+                     vblob_file_size:doc.vblob_file_size
+                   }
+                 ],
+            fn:doc.vblob_file_name
+          }; 
+        } else {
+          gc_hash[container_name][doc.vblob_file_fingerprint].ver.push(doc.vblob_file_version+"-"+seq_id);
+          gc_hash[container_name][doc.vblob_file_fingerprint].meta.push(
+            {
+              vblob_file_etag:doc.vblob_file_etag,
+              vblob_update_time:doc.vblob_update_time,
+              vblob_seq_id:doc.vblob_seq_id,
+              vblob_file_size:doc.vblob_file_size
+            }
+          );
+        }
+        fb.logger.debug("file creation "+doc.vblob_file_version+" complete, now reply back...");
+        callback(resp.resp_code, resp.resp_header, resp.resp_body,null);
       }); //end of linking temp to version
     }); //end of renaming temp blob to blob/version
   }); //end of write meta file
@@ -830,21 +818,19 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
   var seq_id;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var meta_dir=null;
-  if (true){
-    var keys = Object.keys(options);
-    for (var idx = 0; idx < keys.length; idx++)
-    {
-      if (keys[idx].match(/^x-amz-copy-source-if-match$/i))
-      { etag_match = options[keys[idx]]; }
-      else if (keys[idx].match(/^x-amz-copy-source-if-none-match$/i))
-      { etag_none_match = options[keys[idx]]; }
-      else if (keys[idx].match(/^x-amz-copy-source-if-unmodified-since$/i))
-      { date_unmodified = options[keys[idx]]; }
-      else if (keys[idx].match(/^x-amz-copy-source-if-modified-since$/i))
-      { date_modified = options[keys[idx]]; }
-      else if (keys[idx].match(/^x-amz-metadata-directive$/i))
-      { meta_dir = options[keys[idx]]; }
-    }
+  var keys = Object.keys(options);
+  for (var idx = 0; idx < keys.length; idx++)
+  {
+    if (keys[idx].match(/^x-amz-copy-source-if-match$/i))
+    { etag_match = options[keys[idx]]; }
+    else if (keys[idx].match(/^x-amz-copy-source-if-none-match$/i))
+    { etag_none_match = options[keys[idx]]; }
+    else if (keys[idx].match(/^x-amz-copy-source-if-unmodified-since$/i))
+    { date_unmodified = options[keys[idx]]; }
+    else if (keys[idx].match(/^x-amz-copy-source-if-modified-since$/i))
+    { date_modified = options[keys[idx]]; }
+    else if (keys[idx].match(/^x-amz-metadata-directive$/i))
+    { meta_dir = options[keys[idx]]; }
   }
   if (meta_dir === null) { meta_dir = 'COPY'; }
   else { meta_dir = meta_dir.toUpperCase(); }
@@ -859,29 +845,28 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
   }
 
   var closure3 = function() {
-  //read src meta here
-  fs.readFile(src_meta_path+"-"+seq_id, function(err,data) {
-    if (err) {
-      if (!retry_cnt) retry_cnt = 0;
-      if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
-        setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
-        return;
-      }
-      error_msg(404,"NoSuchFile",err,resp);
-      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-      return;
-    }
-    var obj = JSON.parse(data);
-    //QUOTA
-    if (source_container !== container_name || source_file !== filename) {
-      if (fb.quota && fb.used_quota + obj.vblob_file_size > fb.quota ||
-          fb.obj_limit && fb.obj_count >= fb.obj_limit) {
-        error_msg(500,"UsageExceeded","Usage will exceed quota",resp);
+    //read src meta here
+    fs.readFile(src_meta_path+"-"+seq_id, function(err,data) {
+      if (err) {
+        if (!retry_cnt) retry_cnt = 0;
+        if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
+          setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+          return;
+        }
+        error_msg(404,"NoSuchFile",err,resp);
         callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
         return;
       }
-    }
-    if (true) {
+      var obj = JSON.parse(data);
+      //QUOTA
+      if (source_container !== container_name || source_file !== filename) {
+        if (fb.quota && fb.used_quota + obj.vblob_file_size > fb.quota ||
+            fb.obj_limit && fb.obj_count >= fb.obj_limit) {
+          error_msg(500,"UsageExceeded","Usage will exceed quota",resp);
+          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          return;
+        }
+      }
       //check etag, last modified
       var check_modified = true;
       var t1,t2;
@@ -944,14 +929,19 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
       if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) return;
       fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/~tmp/"+version_id+"-blob", function(err) {
         if (err) {
-          setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
+          if (!retry_cnt) retry_cnt = 0;
+          if (retry_cnt < MAX_COPY_RETRY) { //suppress temporary failures from underlying storage
+            setTimeout(function(fb1) { delete options.seq_id; fb1.file_copy(container_name, filename, source_container, source_file, options, metadata, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+            return;
+          }
+          error_msg(500,"InternalError",err,resp);
+          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
           return;
         }
         //ready to call file_create_meta
         fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, dest_obj, callback, fb, true);
       });
-    };
-  });
+    });
   }; // end of closure3
   if (options.seq_id) { seq_id = options.seq_id; closure3(); }
   else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+source_container+"/"+source_file, function (res) {
@@ -997,128 +987,135 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
   }
   var seq_id;
   var closure2 = function() {
-  //read meta here
-  fs.readFile(file_path+"-"+seq_id,function (err, data) {
-    if (err) {
-      //suppress temporary failures from underlying storage
-      if (!retry_cnt) retry_cnt = 0;
-      if (retry_cnt < MAX_READ_RETRY) {
-        delete options.seq_id;
-        setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+    //read meta here
+    fs.readFile(file_path+"-"+seq_id,function (err, data) {
+      if (err) {
+        //suppress temporary failures from underlying storage
+        if (!retry_cnt) retry_cnt = 0;
+        if (retry_cnt < MAX_READ_RETRY) {
+          delete options.seq_id;
+          setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+          return;
+        }
+        error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+      }
+      var obj = JSON.parse(data);
+      var header = common_header();
+  //    if (file_size !== obj.vblob_file_size) {
+  //      error_msg(500,"InternalError","file corrupted",resp); resp.resp_end(); return;
+  //    }
+      var modified_since=true, unmodified_since=true;
+      var t1,t2;
+      if (date_modified) {
+        t1 = new Date(date_modified).valueOf();
+        t2 = new Date(obj.vblob_update_time).valueOf();
+        modified_since = t2 > t1 || t1 > new Date().valueOf(); //make sure the timestamp is not in the future
+      } else if (date_unmodified) {
+        t1 = new Date(date_unmodified).valueOf();
+        t2 = new Date(obj.vblob_update_time).valueOf();
+        unmodified_since = t2 <= t1;
+      }
+      //412
+      if (unmodified_since === false ||
+          etag_match && etag_match !== obj.vblob_file_etag)
+      {
+        error_msg(412,"PreconditionFailed","At least one of the preconditions you specified did not hold.",resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+      }
+      //304
+      if (modified_since === false ||
+          etag_none_match && etag_none_match === obj.vblob_file_etag)
+      {
+        error_msg(304,'NotModified','The object is not modified',resp);
+        resp.resp_header.etag = obj.vblob_file_etag; resp.resp_header["last-modified"] = obj.vblob_update_time;
+        callback(resp.resp_code, resp.resp_header, /*resp.resp_body*/ null, null); //304 should not have body
         return;
       }
-      error_msg(404,"NoSuchFile",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
-    }
-    var obj = JSON.parse(data);
-    var header = common_header();
-//    if (file_size !== obj.vblob_file_size) {
-//      error_msg(500,"InternalError","file corrupted",resp); resp.resp_end(); return;
-//    }
-    var modified_since=true, unmodified_since=true;
-    var t1,t2;
-    if (date_modified) {
-      t1 = new Date(date_modified).valueOf();
-      t2 = new Date(obj.vblob_update_time).valueOf();
-      modified_since = t2 > t1 || t1 > new Date().valueOf(); //make sure the timestamp is not in the future
-    } else if (date_unmodified) {
-      t1 = new Date(date_unmodified).valueOf();
-      t2 = new Date(obj.vblob_update_time).valueOf();
-      unmodified_since = t2 <= t1;
-    }
-    //412
-    if (unmodified_since === false ||
-        etag_match && etag_match !== obj.vblob_file_etag)
-    {
-      error_msg(412,"PreconditionFailed","At least one of the preconditions you specified did not hold.",resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
-    }
-    //304
-    if (modified_since === false ||
-        etag_none_match && etag_none_match === obj.vblob_file_etag)
-    {
-      error_msg(304,'NotModified','The object is not modified',resp);
-      resp.resp_header.etag = obj.vblob_file_etag; resp.resp_header["last-modified"] = obj.vblob_update_time;
-      callback(resp.resp_code, resp.resp_header, /*resp.resp_body*/ null, null); //304 should not have body
-      return;
-    }
-    header["content-type"] = obj["content-type"] ? obj["content-type"] :  "binary/octet-stream";
-    header["Content-Length"] = obj.vblob_file_size;
-    header["Last-Modified"] = obj.vblob_update_time;
-    header.ETag = obj.vblob_file_etag;
-    var keys = Object.keys(obj);
-    for (var idx = 0; idx < keys.length; idx++) {
-      var obj_key = keys[idx];
-      if (obj_key.match(/^vblob_meta_/)) {
-        var sub_key = obj_key.substr(11);
-        sub_key = "x-amz-meta-" + sub_key;
-        header[sub_key] = obj[obj_key];
-      } else if (obj_key.match(/^vblob_/) === null) {
-        //other standard attributes
-        header[obj_key] = obj[obj_key];
-      }
-    }
-    //override with response-xx
-    keys = Object.keys(options);
-    for (var idx2 = 0; idx2 < keys.length; idx2++) {
-      var obj_key2 = keys[idx2];
-      if (obj_key2.match(/^response-/)) {
-        var sub_key2 = obj_key2.substr(9);
-        header[sub_key2] = options[obj_key2];
-      }
-    }
-    header["Accept-Ranges"] = "bytes";
-    var st;
-    if (range !== null && range !== undefined) {
-      header["Content-Range"] = "bytes "+ (range.start!==undefined?range.start:"")+'-'+(range.end!==undefined?range.end.toString():"") + "/"+obj.vblob_file_size.toString();
-      if (range.start === undefined) { range.start = obj.vblob_file_size - range.end; delete range.end; }
-      if (range.end === undefined) { range.end = obj.vblob_file_size-1; }
-      header["Content-Length"] = range.end - range.start + 1;
-      //resp.writeHeader(206,header);
-      resp_code = 206; resp_header = header;
-      if (verb==="get") { //TODO: retry for range read?
-        if (range.start < 0 || range.start > range.end ||
-            range.start > obj.vblob_file_size-1 || range.end > obj.vblob_file_size-1)
-        {
-          error_msg(416,'InvalidRange','The requested range is not satisfiable',resp);
-          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-          return;
+      header["content-type"] = obj["content-type"] ? obj["content-type"] :  "binary/octet-stream";
+      header["Content-Length"] = obj.vblob_file_size;
+      header["Last-Modified"] = obj.vblob_update_time;
+      header.ETag = obj.vblob_file_etag;
+      var keys = Object.keys(obj);
+      for (var idx = 0; idx < keys.length; idx++) {
+        var obj_key = keys[idx];
+        if (obj_key.match(/^vblob_meta_/)) {
+          var sub_key = obj_key.substr(11);
+          sub_key = "x-amz-meta-" + sub_key;
+          header[sub_key] = obj[obj_key];
+        } else if (obj_key.match(/^vblob_/) === null) {
+          //other standard attributes
+          header[obj_key] = obj[obj_key];
         }
-        st = fs.createReadStream(c_path+"/"+obj.vblob_file_path, range);
-        st.on('error', function(err) {
-          st = null;
-          error_msg(503,'SlowDown','The object is being updated too frequently, try later',resp);
-          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-        });
-        st.on('open', function(fd) {
-          callback(resp_code, resp_header, null, st);
-        });
+      }
+      //override with response-xx
+      keys = Object.keys(options);
+      for (var idx2 = 0; idx2 < keys.length; idx2++) {
+        var obj_key2 = keys[idx2];
+        if (obj_key2.match(/^response-/)) {
+          var sub_key2 = obj_key2.substr(9);
+          header[sub_key2] = options[obj_key2];
+        }
+      }
+      header["Accept-Ranges"] = "bytes";
+      var st;
+      if (range !== null && range !== undefined) {
+        header["Content-Range"] = "bytes "+ (range.start!==undefined?range.start:"")+'-'+(range.end!==undefined?range.end.toString():"") + "/"+obj.vblob_file_size.toString();
+        if (range.start === undefined) { range.start = obj.vblob_file_size - range.end; delete range.end; }
+        if (range.end === undefined) { range.end = obj.vblob_file_size-1; }
+        header["Content-Length"] = range.end - range.start + 1;
+        //resp.writeHeader(206,header);
+        resp_code = 206; resp_header = header;
+        if (verb==="get") { //TODO: retry for range read?
+          if (range.start < 0 || range.start > range.end ||
+              range.start > obj.vblob_file_size-1 || range.end > obj.vblob_file_size-1)
+          {
+            error_msg(416,'InvalidRange','The requested range is not satisfiable',resp);
+            callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+            return;
+          }
+          st = fs.createReadStream(c_path+"/"+obj.vblob_file_path, range);
+          st.on('error', function(err) {
+            st = null;
+            error_msg(503,'SlowDown','The object is being updated too frequently, try later',resp);
+            callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          });
+          st.on('open', function(fd) {
+            callback(resp_code, resp_header, null, st);
+          });
+        } else {
+          if (range.start < 0 || range.start > range.end ||
+              range.start > obj.vblob_file_size-1 || range.end > obj.vblob_file_size-1)
+          {
+            error_msg(416,'InvalidRange','The requested range is not satisfiable',resp);
+            callback(resp.resp_code, resp.resp_header, null, null);
+            return;
+          }
+          callback(resp_code, resp_header, null, null);
+        }
       } else {
-        if (range.start < 0 || range.start > range.end ||
-            range.start > obj.vblob_file_size-1 || range.end > obj.vblob_file_size-1)
-        {
-          error_msg(416,'InvalidRange','The requested range is not satisfiable',resp);
-          callback(resp.resp_code, resp.resp_header, null, null);
-          return;
-        }
-        callback(resp_code, resp_header, null, null);
+        resp_code = 200; resp_header = header;
+        //resp.writeHeader(200,header);
+        if (verb==="get") {
+          st = fs.createReadStream(c_path+"/"+obj.vblob_file_path);
+          st.on('error', function(err) {//RETRY??
+            st = null;
+            fb.logger.error( ("file "+obj.vblob_file_version+" is purged by gc already!"));
+            //error_msg(508,'SlowDown','The object is being updated too frequently, try later',resp);
+            //callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+            //suppress temporary failures from underlying storage
+            if (!retry_cnt) retry_cnt = 0;
+            if (retry_cnt < MAX_READ_RETRY) {
+              delete options.seq_id;
+              setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1, retry_cnt+1); }, Math.floor(Math.random()*1000) + 100,fb);
+              return;
+            }
+            error_msg(500,"InternalError",err,resp); callback(resp.resp_code, resp.resp_header, resp.resp_body, null); return;
+          });
+          st.on('open', function(fd) {
+            callback(resp_code, resp_header, null, st);
+          });
+        }  else { callback(resp_code, resp_header, null, null);  }
       }
-    } else {
-      resp_code = 200; resp_header = header;
-      //resp.writeHeader(200,header);
-      if (verb==="get") {
-        st = fs.createReadStream(c_path+"/"+obj.vblob_file_path);
-        st.on('error', function(err) {//RETRY??
-          st = null;
-          fb.logger.error( ("file "+obj.vblob_file_version+" is purged by gc already!"));
-          //error_msg(508,'SlowDown','The object is being updated too frequently, try later',resp);
-          //callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-          setTimeout(function(fb1) { fb1.file_read(container_name, filename, options, callback,fb1); }, Math.floor(Math.random()*1000) + 100,fb);
-        });
-        st.on('open', function(fd) {
-          callback(resp_code, resp_header, null, st);
-        });
-      }  else { callback(resp_code, resp_header, null, null);  }
-    }
-  });
+    });
   };//end of closure2
   if (options.seq_id) { seq_id = options.seq_id; closure2(); }
   else http.get("http://"+fb.meta_host+":"+fb.meta_port+"/"+container_name+"/"+filename, function (res) {
@@ -1406,8 +1403,6 @@ FS_Driver.prototype.get_config = function() {
   obj.type = "fs";
   obj2.root= this.client.root_path;
   obj2.node_exepath = this.client.node_exepath;
-  obj2.gc_exepath = this.client.gc_exepath;
-  obj2.gc_interval = this.client.gc_interval;
   obj2.gcfc_exepath = this.client.gcfc_exepath;
   obj2.gcfc_interval = this.client.gcfc_interval;
   obj2.gctmp_exepath = this.client.gctmp_exepath;
@@ -1417,6 +1412,10 @@ FS_Driver.prototype.get_config = function() {
   obj2.collector = this.client.collector;
   obj2.quota = this.client.quota;
   obj2.obj_limit = this.client.obj_limit;
+  obj2.seq_host = this.client.seq_host;
+  obj2.seq_port = this.client.seq_port;
+  obj2.meta_host = this.client.meta_host;
+  obj2.meta_port = this.client.meta_port;
   obj.option = obj2;
   return obj;
 };
