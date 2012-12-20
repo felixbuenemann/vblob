@@ -8,6 +8,20 @@ var crypto = require('crypto');
 var zlib = require('zlib');
 var express = require('express');
 
+function seq_id_cmp(seq1, seq2)
+{
+  var epoch1, epoch2, cnt1, cnt2;
+  epoch1 = parseInt(seq1.substr(0, seq1.indexOf('-')),10);
+  epoch2 = parseInt(seq2.substr(0, seq2.indexOf('-')),10);
+  if (epoch1 < epoch2) return -1;
+  if (epoch1 > epoch2) return 1;
+  cnt1 = parseInt(seq1.substring(seq1.indexOf('-')+1), 10);
+  cnt2 = parseInt(seq2.substring(seq2.indexOf('-')+1), 10);
+  if (cnt1 < cnt2) return -1;
+  if (cnt1 > cnt2) return 1;
+  return 0;
+}
+
 //identical to the ones in blob_fs
 function get_key_md5_hash(filename)
 {
@@ -242,7 +256,7 @@ buck.on('compact',function(buck_idx) {
                   });//end of update_evt done
                   if (!err2) {
                     var obj = {};
-                    try { obj = JSON.parse(data); } catch (e) {update_evt.emit('done'); return; } //in case this file is truncated or corrupted, TODO: possible race condition. reading partial content while gctmp/gcfc is still writing
+                    try { obj = JSON.parse(data); } catch (e) {update_evt.emit('done'); return; } //in case this file is truncated or corrupted
                     var keys = Object.keys(obj);
                     for (var key_idx = 0; key_idx < keys.length; key_idx++) {
                         var current_key = keys[key_idx];
@@ -257,7 +271,7 @@ buck.on('compact',function(buck_idx) {
                             //right now don't support versioning
                             var obj2 = obj[current_key][ver_idx];
                             var old_size = enum_base[current_key]?enum_base[current_key][0].size:-1;
-                            if (old_size == -1 || enum_base[current_key][0].seq <= obj2.vblob_seq_id) {
+                            if (old_size == -1 || seq_id_cmp(enum_base[current_key][0].seq , obj2.vblob_seq_id) <= 0) {
                             if (old_size != -1 && enum_base[current_key][0].seq == obj2.vblob_seq_id) continue;
                             //unlink version and blob of current version
                             if (old_size != -1) fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
@@ -272,8 +286,8 @@ buck.on('compact',function(buck_idx) {
                             _used_quota += enum_base[current_key][0].size - old_size;
                             } else {
                               //unlink obj2 version
-                            fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
-                            fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
+                              fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
+                              fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
                             }
                           } //end of for ver_idx
                     }//end of for key_idx

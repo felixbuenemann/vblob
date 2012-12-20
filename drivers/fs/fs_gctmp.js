@@ -45,10 +45,11 @@ buck.on('gc',function(buck_idx) {
     evt.Container = containers[i];
     evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-ts-cnt]/[-ts-cnt-delete]/[-ts-cnt-nop]
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-epoch-cnt]/[-epoch-cnt-delete]/[-epoch-cnt-nop]
       var ftype = filename.charAt(filename.length-1);
       var key_fingerprint;
       var seq_id;
+      var epoch;
       var ts; //timestamp in filename
       var test_nfs = filename.substr(0,4); //nfs renames file to .nfsxxxxx, we need to skip such files
       if (test_nfs == '.nfs') {
@@ -56,55 +57,27 @@ buck.on('gc',function(buck_idx) {
         evt.emit('nextbatch');
         return;
       }
-      if (ftype == 'b') { //blob
-        var filename2 = filename;
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
-        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
-        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
-      } else if (ftype == 'e') { //delete
-        var filename2 = filename;
-        var cnt;
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove [delete]
-        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
-        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
-        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
-        seq_id = ts+"-"+cnt;
-      } else if (ftype == 'p') { //nop
-        var filename2 = filename;
-        var cnt;
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove [nop]
-        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
-        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
-        seq_id = ts+"-"+cnt;
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
-        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
-        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
-      } else { //normal meta
-        var filename2 = filename;
-        var cnt;
-        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
-        ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove ts
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
-        key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
-        seq_id = ts+"-"+cnt;
+      var filename2 = filename;
+      if (ftype == 'b' || ftype == 'e' || ftype == 'p') {
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob/delete/nop
       }
+      if (ftype != 'b') {
+        cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+        epoch = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get epoch
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove epoch
+        seq_id = epoch+"-"+cnt;
+      }
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand2
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove rand1
+      ts = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get ts
+      key_fingerprint = filename2.substr(0,filename2.lastIndexOf('-')); //get fingerprint
       //console.log(filename);
       var prefix1 = filename.substr(0,PREFIX_LENGTH), prefix2 = filename.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
       var fdir_path = root_path + "/" + evt.Container + "/blob/" + prefix1 + "/" + prefix2;
       var fver_path = root_path + "/" + evt.Container + "/versions/" + prefix1 + "/" + prefix2;
       var mtime = parseInt(ts);
+      //initial filtering using the ts in filename
       if ( !force 
            &&
            (
@@ -134,18 +107,34 @@ buck.on('gc',function(buck_idx) {
           evt.emit('nextbatch');
           return;
         }
+        //check stats.mtime to see if it's being written recently
+        var mtime = new Date(stats.mtime).valueOf();
+        if ( !force 
+             &&
+             (
+               ((ftype == 'b' || ftype == 'p') &&  //for blob or nop file, check MAX_TIMEOUT window
+                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                  || 
+                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
+                 )
+               )  
+             ||((ftype != 'b' && ftype != 'p') &&        //for meta file or delete, check MAX_TIMEOUT2 window
+                 (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+                  || 
+                  !gc_timestamp && current_ts < mtime + MAX_TIMEOUT2
+                 )
+               )
+             )
+           )
+        {
+          evt.Counter++;
+          evt.emit('nextbatch');
+          return;
+        }
         if (ftype == 'b') {
           //console.log('cleaning up ' + filename);
           //temp blob
-          //check mtime to see if it's being written recently
-          var mtime = new Date(stats.mtime).valueOf();
-          if (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
-            ||
-           !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
-          ) {
-            evt.Counter++;
-            evt.emit('nextbatch');
-          } else fs.unlink(trash_dir+"/"+filename, function(err) {
+          fs.unlink(trash_dir+"/"+filename, function(err) {
             evt.Counter++;
             evt.emit('nextbatch');
           });

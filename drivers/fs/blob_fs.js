@@ -251,7 +251,7 @@ function FS_blob(option,callback)  //fow now no encryption for fs
         //start sequence server
         var node_exepath = option.node_exepath ? option.node_exepath : process.execPath;
         var seq_exepath =  __dirname+"/seq_server.js";
-        exec(node_exepath+" "+seq_exepath+" 2>&1 >/dev/null", function(error,stdout,stderr) {
+        exec(node_exepath+" "+seq_exepath+" --epoch "+this1.root_path+"/epoch_file" + " 2>&1 >/dev/null", function(error,stdout,stderr) {
         })
       }
     } else { this1.logger.error( ('root folder in fs driver is not mounted')); }
