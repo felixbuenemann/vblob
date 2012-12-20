@@ -50,6 +50,12 @@ buck.on('gc',function(buck_idx) {
       var key_fingerprint;
       var seq_id;
       var ts; //timestamp in filename
+      var test_nfs = filename.substr(0,4); //nfs renames file to .nfsxxxxx, we need to skip such files
+      if (test_nfs == '.nfs') {
+        evt.Counter++;
+        evt.emit('nextbatch');
+        return;
+      }
       if (ftype == 'b') { //blob
         var filename2 = filename;
         filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob

@@ -520,6 +520,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   var md5_base64 = null;
   var file_size = 0;
   var upload_failed = false;
+  var blob_fd = null;
+  stream.on('open', function(fd) { blob_fd = fd; });
   stream.on("error", function (err) {
     upload_failed = true;
     fb.logger.error( ("write stream " + temp_blob_path+" "+err));
@@ -528,8 +530,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
       callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
     }
     if (data) data.destroy();
-    if (stream && !stream.destroyed) { stream.destroyed = true;  stream.end(); stream.destroySoon(); }
-    else fs.unlink(temp_blob_path, function(err) { });
+    if (blob_fd) fs.close(blob_fd, function(err) { fs.unlink(temp_blob_path,function(err){});});
+    else fs.unlink(temp_blob_path,function(err){});
   });
   data.on("error", function (err) {
     upload_failed = true;
@@ -539,8 +541,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
     }
     fb.logger.error( ('input stream '+temp_blob_path+" "+err));
     if (data) data.destroy();
-    if (stream && !stream.destroyed) { stream.destroyed = true; stream.end(); stream.destroySoon(); }
-    else fs.unlink(temp_blob_path, function(err) { });
+    if (blob_fd) fs.close(blob_fd, function(err) { fs.unlink(temp_blob_path,function(err){});});
+    else fs.unlink(temp_blob_path,function(err){});
   });
   data.on("data",function (chunk) {
     md5_etag.update(chunk);
@@ -615,8 +617,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
       upload_failed = true;
       fb.logger.warn( ('interrupted upload: ' + filename));
       data.destroy();
-      if (stream && !stream.destroyed) {stream.destroyed=true; stream.end(); stream.destroySoon();}
-      else fs.unlink(temp_blob_path, function(err) { });
+      if (blob_fd) fs.close(blob_fd, function(err) { fs.unlink(temp_blob_path,function(err){});});
+      else fs.unlink(temp_blob_path,function(err){});
     });
   }
 };
