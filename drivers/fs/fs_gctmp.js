@@ -137,7 +137,15 @@ buck.on('gc',function(buck_idx) {
         if (ftype == 'b') {
           //console.log('cleaning up ' + filename);
           //temp blob
-          fs.unlink(trash_dir+"/"+filename, function(err) {
+          //check mtime to see if it's being written recently
+          var mtime = new Date(stats.mtime).valueOf();
+          if (gc_timestamp && gc_timestamp < mtime //created later than the specified timestamp
+            ||
+           !gc_timestamp && current_ts < mtime + MAX_TIMEOUT
+          ) {
+            evt.Counter++;
+            evt.emit('nextbatch');
+          } else fs.unlink(trash_dir+"/"+filename, function(err) {
             evt.Counter++;
             evt.emit('nextbatch');
           });
@@ -328,19 +336,38 @@ buck.on('gc',function(buck_idx) {
         evt.emit('next', evt.Counter);
       else {
         //write to delta file and unlink to_delete list
-        var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+        var keys = Object.keys(to_delete);
+        if (keys.length < 1) return;
+        var suffix = new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+        var enum_delta_file = enum_dir + "/delta-"+ suffix;
+        var enum_delta_tmp_file = enum_dir + "/tmp-" + suffix;
         var sync_cnt = 0;
         var failed_cnt = 0;
         while (sync_cnt < MAX_TRIES) {
           try {
-            fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta));
+            fs.writeFileSync(enum_delta_tmp_file, JSON.stringify(enum_delta));
           } catch (e) { failed_cnt++; }
           sync_cnt++;
           if (failed_cnt < sync_cnt) break;
         }
+        if (failed_cnt >= sync_cnt) {
+          fs.unlink(enum_delta_tmp_file,function(err){});
+          //can't proceed
+          return;
+        }
+        sync_cnt = 0; failed_cnt = 0;
+        while (sync_cnt < MAX_TRIES) {
+          try { fs.renameSync(enum_delta_tmp_file, enum_delta_file); } catch (e) {failed_cnt++;}
+          sync_cnt++;
+          if (failed_cnt < sync_cnt) break;
+        }
+        if (failed_cnt >= sync_cnt) {
+          fs.unlink(enum_delta_tmp_file,function(err){});
+          //can't proceed
+          return;
+        }
         if (failed_cnt < sync_cnt) {
           //now safely remove the gc files
-          var keys = Object.keys(to_delete);
           for (var idx=0; idx<keys.length; idx++)
             fs.unlink(trash_dir+"/"+keys[idx],function(e) {});
         }

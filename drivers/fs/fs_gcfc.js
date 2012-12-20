@@ -35,15 +35,29 @@ buck.on('gc',function(buck_idx) {
     for (var j = 0; j < trashes.length; j++)
      enum_delta[gc_hash[containers[buck_idx]][trashes[j]].fn] = gc_hash[containers[buck_idx]][trashes[j]].meta;
     //WRITE ENUM DELTA
-    var enum_delta_file = enum_dir + "/delta-"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+    var suffix = new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+    var enum_delta_file = enum_dir + "/delta-" + suffix;
+    var enum_delta_tmp_file = enum_dir + "/tmp-" + suffix;
     var sync_cnt = 0;
     var failed_cnt = 0;
     while (sync_cnt < MAX_TRIES) {
-      try { fs.writeFileSync(enum_delta_file, JSON.stringify(enum_delta)); } catch (e) {failed_cnt++;}
+      try { fs.writeFileSync(enum_delta_tmp_file, JSON.stringify(enum_delta)); } catch (e) {failed_cnt++;}
       sync_cnt++;
       if (failed_cnt < sync_cnt) break;
     }
     if (failed_cnt >= sync_cnt) {
+      fs.unlink(enum_delta_tmp_file,function(err){});
+      //can't proceed
+      return;
+    }
+    sync_cnt = 0; failed_cnt = 0;
+    while (sync_cnt < MAX_TRIES) {
+      try { fs.renameSync(enum_delta_tmp_file, enum_delta_file); } catch (e) {failed_cnt++;}
+      sync_cnt++;
+      if (failed_cnt < sync_cnt) break;
+    }
+    if (failed_cnt >= sync_cnt) {
+      fs.unlink(enum_delta_tmp_file,function(err){});
       //can't proceed
       return;
     }
@@ -52,10 +66,7 @@ buck.on('gc',function(buck_idx) {
       var filename = trashes[j];
       for (var xx = 0; xx < gc_hash[containers[buck_idx]][filename].ver.length; xx++) {
         var fn = gc_hash[containers[buck_idx]][filename].ver[xx];
-        if (fn.charAt(fn.length-1) == 'e') //delete gc entry, remove from gc
-          fs.unlink(trash_dir+"/"+ fn, function(err) {} );
-        else //remove tmp entry
-          fs.unlink(tmp_dir+"/"+ fn, function(err) {});
+        fs.unlink(tmp_dir+"/"+ fn, function(err) {});
       }
     }
   } catch (err) {
