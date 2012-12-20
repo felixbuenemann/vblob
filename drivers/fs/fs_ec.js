@@ -50,6 +50,7 @@ var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
 var MAX_WRITE_TRIES = 3;
 var MAX_DELETE_TRIES = 5;
+var PURGE_EXPIRATION = 24 * 3600 * 1000; //24 hrs to purge deleted entries
 var argv = process.argv;
 var root_path = argv[2];
 var tmp_path = '/tmp';
@@ -89,9 +90,11 @@ var containers;
 var global_enum_base = {};
 var global_quota_map = {};
 var global_objects_map = {};
+var global_purge_list = {};
 var processed_logs = {};
 var flush_map = {};
 var job_done = true;
+var purge_done = true;
 
 function flush_base(bucket, enum_base, enum_dir) {
     //UPDATE BASE
@@ -214,21 +217,33 @@ buck.on('compact',function(buck_idx) {
             } catch (e) { };
               deleted++;
           }
-          if (global_enum_base[containers[buck_idx]]) if (versions.length === 0 || versions.length === 1 && versions[0] === '') {
-            flush_event.counter--;
-            if (flush_event.counter == 0) flush_event.emit('flush');
-            return;
-          }
+          if (global_enum_base[containers[buck_idx]] &&
+              (flush_map[containers[buck_idx]] && new Date().valueOf() - flush_map[containers[buck_idx]] < PURGE_EXPIRATION) //it's within PURGE_EXPIRATION since last flush, don't force a purge scan
+              ) 
+            if (versions.length === 0 || versions.length === 1 && versions[0] === '') {
+              flush_event.counter--;
+              if (flush_event.counter == 0) flush_event.emit('flush');
+              return;
+            }
           var closure = function(bucket) {
             var ivt_enum = {};
             var enum_base = global_enum_base[bucket];
             var keys1 = Object.keys(global_enum_base[bucket]);
+            var current_ts = new Date().valueOf();
             for (var nIdx1=0; nIdx1<keys1.length; nIdx1++) {
               var ver1 = get_key_fingerprint(keys1[nIdx1]);
               ivt_enum[keys1[nIdx1]] = ver1;
               _objects += enum_base[keys1[nIdx1]].length;
-              //need to change for versionings
-              if (enum_base[keys1[nIdx1]].length==1&&!enum_base[keys1[nIdx1]][0].etag) _objects--;
+              //TODO: need to change for versionings
+              if (enum_base[keys1[nIdx1]].length==1&&!enum_base[keys1[nIdx1]][0].etag) {
+                _objects--;
+                //check if we need to purge delete markers
+                if (new Date(enum_base[keys1[nIdx1]][0].lastmodified).valueOf() + PURGE_EXPIRATION < current_ts) {
+                  //PURGE_EXPIRATION old delete marker, add to purge list
+                  if (!global_purge_list[containers[buck_idx]]) global_purge_list[containers[buck_idx]] = {};
+                  global_purge_list[containers[buck_idx]][keys1[nIdx1]] = 1;
+                }
+              }
               for (var nIdx2=0; nIdx2<enum_base[keys1[nIdx1]].length; nIdx2++) {
                 _used_quota += enum_base[keys1[nIdx1]][nIdx2].size;
               }
@@ -355,11 +370,63 @@ function run_once() {
     for (var xx=0;xx<containers.length;xx++)
       if (keys[x] == containers[xx]) {found = true; break; }
     if (!found) delete global_enum_base[keys[x]];
+    if (!found) delete global_purge_list[keys[x]];
   }
   if (flush_event.counter > 0) {
     for (var i = 0; i < containers.length; i++)
       buck.emit('compact',i);
   } else job_done = true;
+}
+
+function purge_once() {
+  var keys = Object.keys(global_purge_list);
+  //console.log('starting to purge');
+  for (var i = 0; i < keys.length; i++) {
+    if (!global_enum_base[keys[i]]) { global_purge_list[keys[i]] = null; continue; }
+    var files;
+    try {
+      files = fs.readdirSync(root_path+"/"+keys[i]+"/~tmp");
+    } catch (e)
+    {
+      if (e.code == 'ENOENT') delete global_purge_list[keys[i]]; //no such bucket
+      continue;
+    }
+    var min_seq = null;
+    for (var idx=0; idx< files.length; idx++) {
+      var filename = files[idx];
+      var ftype = filename.charAt(filename.length-1);
+      if (ftype == 'b') continue; //temp blob has no epoch
+      var test_nfs = filename.substr(0,4); //nfs renames file to .nfsxxxxx, we need to skip such files
+      if (test_nfs == '.nfs') continue;
+      var filename2 = filename;
+      var epoch,cnt,seq_id;
+      if (ftype == 'e' || ftype == 'p') {
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove delete/nop
+      }
+      cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+      epoch = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get epoch
+      filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove epoch
+      seq_id = epoch+"-"+cnt;
+      if (!min_seq || seq_id_cmp(seq_id, min_seq) < 0) min_seq = seq_id;
+    }
+    files = null;
+    var keys2 = Object.keys(global_purge_list[keys[i]]);
+    for (var idx2=0; idx2<keys2.length; idx2++) {
+      var vec = global_enum_base[keys[i]][keys2[idx2]];
+      if (!vec) continue; //non-exists
+      if (vec.length > 1) continue; //multi-versions
+      if (vec[0].etag) continue; //not delete marker
+      if (min_seq && seq_id_cmp(min_seq,vec[0].seq) < 0) continue; //don't trim, there may be other versions in between
+      delete global_enum_base[keys[i]][keys2[idx2]];
+      delete global_purge_list[keys[i]][keys2[idx2]];
+      processed_logs[keys[i]] = {}; //trigger flush
+    }
+    keys2 = Object.keys(global_purge_list[keys[i]]);
+    if (keys2.length == 0) delete global_purge_list[keys[i]];
+  }
+  //console.log('purge done');
+  purge_done = true;
 }
 
 if (long_running == true) {
@@ -384,4 +451,9 @@ else {
     job_done = false;
     run_once();
   }, long_running_interval);
+  setInterval(function() {
+    if (purge_done != true) return;
+    purge_done = false;
+    purge_once();
+  }, PURGE_EXPIRATION);
 }
