@@ -27,7 +27,6 @@ var containers = Object.keys(gc_hash); //first level key: container_name
 buck.on('gc',function(buck_idx) {
   try {
     var trashes = Object.keys(gc_hash[containers[buck_idx]]); //second level key: file fingerprint
-    var trash_dir = root_path + "/" + containers[buck_idx] + "/~gc";
     var tmp_dir = root_path + "/" + containers[buck_idx] + "/~tmp";
     var enum_dir = root_path + "/" + containers[buck_idx] + "/~enum";
     var enum_delta = {};

@@ -45,7 +45,7 @@ buck.on('gc',function(buck_idx) {
     evt.Container = containers[i];
     evt.Counter = 0;
     evt.on('next',function(idx) {
-      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-epoch-cnt]/[-epoch-cnt-delete]/[-epoch-cnt-nop]
+      var filename = trashes[idx]; //hash-pref-suff-ts-rand1-rand [-blob]/[-epoch-cnt]/[-epoch-cnt-nop]
       var ftype = filename.charAt(filename.length-1);
       var key_fingerprint;
       var seq_id;
@@ -58,8 +58,8 @@ buck.on('gc',function(buck_idx) {
         return;
       }
       var filename2 = filename;
-      if (ftype == 'b' || ftype == 'e' || ftype == 'p') {
-        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob/delete/nop
+      if (ftype == 'b' || ftype == 'p') {
+        filename2 = filename2.substr(0,filename2.lastIndexOf('-'));  //remove blob/nop
       }
       if (ftype != 'b') {
         cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
@@ -207,27 +207,6 @@ buck.on('gc',function(buck_idx) {
               });
             }
           });
-        } else if (ftype == 'e') { //delete file
-          //always redo
-          fs.readFile(trash_dir+"/"+filename, function(err,data) {
-            if (!err) {
-              to_delete[filename] = 1;
-              var obj = JSON.parse(data);
-              if (!enum_delta[obj.vblob_file_name])
-                enum_delta[obj.vblob_file_name]=[];
-              var obj2 = {};
-              obj2.vblob_update_time = new Date(mtime).toUTCString().replace(/UTC/ig,"GMT");
-              obj2.vblob_seq_id = seq_id;
-              obj2.vblob_file_size = 0;
-              enum_delta[obj.vblob_file_name].push(obj2);
-              obj2 = null;
-              evt.Counter++;
-              evt.emit('nextbatch');
-            } else {
-              evt.Counter++;
-              evt.emit('nextbatch');
-            }
-          });
         } else { //normal put 
           if (stats.nlink < 2) { //gen nop, try remove
             //uncommitted upload, remove blob
@@ -303,7 +282,7 @@ buck.on('gc',function(buck_idx) {
                 if (!enum_delta[obj.vblob_file_name])
                   enum_delta[obj.vblob_file_name]=[];
                 var obj2 = {};
-                obj2.vblob_file_etag=obj.vblob_file_etag;
+                if (obj.vblob_file_etag) obj2.vblob_file_etag=obj.vblob_file_etag;
                 obj2.vblob_update_time=obj.vblob_update_time;
                 obj2.vblob_seq_id=obj.vblob_seq_id;
                 obj2.vblob_file_size=obj.vblob_file_size;

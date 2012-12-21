@@ -412,12 +412,18 @@ function purge_once() {
     }
     files = null;
     var keys2 = Object.keys(global_purge_list[keys[i]]);
+    var version_dir = root_path+"/"+keys[i]+"/versions";
+    var blob_dir = root_path+"/"+keys[i]+"/blob";
     for (var idx2=0; idx2<keys2.length; idx2++) {
       var vec = global_enum_base[keys[i]][keys2[idx2]];
       if (!vec) continue; //non-exists
       if (vec.length > 1) continue; //multi-versions
       if (vec[0].etag) continue; //not delete marker
       if (min_seq && seq_id_cmp(min_seq,vec[0].seq) < 0) continue; //don't trim, there may be other versions in between
+      var fp = get_key_fingerprint(keys2[idx2]);
+      var pref1 = fp.substr(0,PREFIX_LENGTH), pref2 = fp.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
+      fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+fp+"-"+vec[0].seq,function(err){});
+      fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+fp+"-"+vec[0].seq,function(err){});
       delete global_enum_base[keys[i]][keys2[idx2]];
       delete global_purge_list[keys[i]][keys2[idx2]];
       processed_logs[keys[i]] = {}; //trigger flush

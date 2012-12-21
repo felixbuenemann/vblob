@@ -745,54 +745,16 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
   //generate a fake version, just a place holder to let gc know there are work to do
   var version_id = generate_version_id(key_fingerprint);
   var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-  var file_path = c_path + "/versions/" + prefix1 +"/"+prefix2+"/"+key_fingerprint; //complete representation: /container_name/filename
-//we create a delete marker without actual data here
-  http.get("http://"+fb.seq_host+":"+fb.seq_port,function(res) {
-    var seq_id = res.headers["seq-id"];
-    var obj = {vblob_file_name : filename};
-    fs.writeFile(c_path + "/"+TEMP_FOLDER+"/" + version_id+"-"+seq_id+"-delete",JSON.stringify(obj), function(err) {
-      obj = null;
-      if (err) {
-        var resp = {};
-        error_msg(500,"InternalError",err,resp);
-        callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
-        return;
-      }
-      //add to gc cache
-      gc_counter++;
-      if (!gc_hash[container_name]) gc_hash[container_name] = {};
-      if (!gc_hash[container_name][key_fingerprint]) {
-        gc_hash[container_name][key_fingerprint] = {
-          ver:[version_id+"-"+seq_id+"-delete"],
-          meta:[
-                 {
-                   vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"),
-                   vblob_seq_id:seq_id,
-                   vblob_file_size:0
-                 }
-               ],
-          fn:filename
-        }; 
-      } else { 
-        gc_hash[container_name][key_fingerprint].ver.push(version_id+"-"+seq_id+"-delete");
-        gc_hash[container_name][key_fingerprint].meta.push(
-          {
-            vblob_update_time:new Date().toUTCString().replace(/UTC/ig, "GMT"),
-            vblob_seq_id:seq_id,
-            vblob_file_size:0
-          }
-        );
-      }
-      //ERROR?
-      resp_code = 204;
-      var header = common_header();
-      resp_header = header;
-      callback(resp_code, resp_header, null, null);
-    });
-  }).on('error',function(err) {
-    var resp = {};
-    error_msg(500,"InternalError",err,resp);
-    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+ //we explicitly generate a delete marker for both blob and meta, so delete and put follow the same procedure
+  fs.writeFile(c_path+"/~tmp/"+version_id+"-blob", '', function(err) {
+    if (err) {
+      error_msg(500,"InternalError",err,resp);
+      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+      return;
+    }
+    var obj = {vblob_file_name: filename, vblob_file_path: "blob/"+prefix1+"/"+prefix2+"/"+version_id, vblob_file_size : 0, vblob_file_version : version_id, vblob_file_fingerprint : key_fingerprint};
+    //ready to call file_create_meta
+    fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, obj, callback, fb, false);
   });
 };
 
