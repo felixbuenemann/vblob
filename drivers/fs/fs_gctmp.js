@@ -149,7 +149,7 @@ buck.on('gc',function(buck_idx) {
               //fs.writeFile(gc_dir+"/"+filename,"nop link=2 "+filename+" "+fn,function(err) {});
               fs.unlink(trash_dir+"/"+fn,function(err) {
                 fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
-                fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                fs.unlink(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id,function(err) {
                   fs.unlink(trash_dir+"/"+filename, function(err) {
                     evt.Counter++;
                     evt.emit('nextbatch');
@@ -157,12 +157,12 @@ buck.on('gc',function(buck_idx) {
                 });
               });
             } else {
-              fs.link(trash_dir+"/"+filename, fver_path+"/"+key_fingerprint+"-"+seq_id, function(err) {
+              fs.link(trash_dir+"/"+filename, fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id, function(err) {
                 if (!err) {
                   //fs.writeFile(gc_dir+"/"+filename,"nop relink successful "+filename+" "+fn,function(err) {});
                   fs.unlink(trash_dir+"/"+fn,function(err) {
                     fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
-                    fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                    fs.unlink(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id,function(err) {
                       fs.unlink(trash_dir+"/"+filename, function(err) {
                         evt.Counter++;
                         evt.emit('nextbatch');
@@ -172,14 +172,14 @@ buck.on('gc',function(buck_idx) {
                 } else {
                   //check error code
                   if (err.code == 'EEXIST') { //already there
-                    fs.stat(fver_path+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
+                    fs.stat(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
                       if (!err2) {
                         if (stats.ino == stats2.ino) //linked by others, still consider succeeded
                         {
                           //fs.writeFile(gc_dir+"/"+filename,"nop linked by others "+filename+" "+fn,function(err) {});
                           fs.unlink(trash_dir+"/"+fn,function(err) {
                             fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
-                            fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                            fs.unlink(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id,function(err) {
                               fs.unlink(trash_dir+"/"+filename, function(err) {
                                 evt.Counter++;
                                 evt.emit('nextbatch');
@@ -218,12 +218,12 @@ buck.on('gc',function(buck_idx) {
                 evt.emit('nextbatch');
                 return;
               }
-              fs.link(trash_dir+"/"+fn,fver_path+"/"+key_fingerprint+"-"+seq_id, function(err) {
+              fs.link(trash_dir+"/"+fn,fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id, function(err) {
                 if (!err) {
                   //fs.writeFile(gc_dir+"/"+filename,"successfully linked "+fn,function(err) {});
                   fs.unlink(trash_dir+"/"+filename, function(err) {
                     fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
-                    fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                    fs.unlink(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id,function(err) {
                       fs.unlink(trash_dir+"/"+fn, function(err) {
                         evt.Counter++;
                         evt.emit('nextbatch');
@@ -235,14 +235,14 @@ buck.on('gc',function(buck_idx) {
                   if (err.code == 'EEXIST') { //already there
                     fs.stat(trash_dir+"/"+fn,function(err3,stats3) {
                     if (!err3)
-                    fs.stat(fver_path+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
+                    fs.stat(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id, function(err2,stats2) {
                       if (!err2) {
                         if (stats3.ino == stats2.ino) //linked by others, still consider succeeded
                         {
                           //fs.writeFile(gc_dir+"/"+filename,"linked by others "+fn+" "+stats3+" "+stats2,function(err) {});
                           fs.unlink(trash_dir+"/"+filename, function(err) {
                             fs.unlink(fdir_path+"/"+key_fingerprint+"-"+seq_id,function(err) {} );
-                            fs.unlink(fver_path+"/"+key_fingerprint+"-"+seq_id,function(err) {
+                            fs.unlink(fver_path+"/"+key_fingerprint+"/"+key_fingerprint+"-"+seq_id,function(err) {
                               fs.unlink(trash_dir+"/"+fn, function(err) {
                                 evt.Counter++;
                                 evt.emit('nextbatch');

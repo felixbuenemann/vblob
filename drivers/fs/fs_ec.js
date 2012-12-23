@@ -50,6 +50,8 @@ var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
 var MAX_WRITE_TRIES = 3;
 var MAX_DELETE_TRIES = 5;
+var MAX_DELETE_TRIES2 = 3;
+var FOLDER_PURGE_INTERVAL = 24 * 3600 * 1000; //24 hrs to purge empty folders on disk
 var PURGE_EXPIRATION = 24 * 3600 * 1000; //24 hrs to purge deleted entries
 var argv = process.argv;
 var root_path = argv[2];
@@ -95,6 +97,7 @@ var processed_logs = {};
 var flush_map = {};
 var job_done = true;
 var purge_done = true;
+var folder_purge_done = true;
 
 function flush_base(bucket, enum_base, enum_dir) {
     //UPDATE BASE
@@ -248,6 +251,7 @@ buck.on('compact',function(buck_idx) {
                 _used_quota += enum_base[keys1[nIdx1]][nIdx2].size;
               }
             }
+            if (!processed_logs[containers[buck_idx]]) processed_logs[containers[buck_idx]] = {};
             var evt2 = new events.EventEmitter();
             evt2.counter = versions.length;
             evt2.on('next',function(idx2) {
@@ -260,7 +264,6 @@ buck.on('compact',function(buck_idx) {
                   return;
                 }
                 fs.readFile(file1,function(err2,data) {
-                  //console.log('processing delta ' + data);
                   var update_evt = new events.EventEmitter();
                   update_evt.on('done',function() {
                     if (evt2.counter > 0) { evt2.emit('next',idx2+1); return; }
@@ -269,6 +272,14 @@ buck.on('compact',function(buck_idx) {
                     flush_event.counter--;
                     if (flush_event.counter == 0) flush_event.emit('flush');
                   });//end of update_evt done
+                  var closure3 = function(bl,ve,fpa,seq,type,retry_cnt) {
+                    fs.unlink(bl+"/"+fpa+"-"+seq,function(err){});
+                    fs.unlink(ve+"/"+fpa+"/"+fpa+"-"+seq,function(err){
+                      if (err && retry_cnt > 0)  setTimeout(function(){
+                        closure3(bl,ve,fpa,seq,type,retry_cnt-1);
+                      }, 8000 + Math.floor(Math.random()*1000));
+                    });
+                  };
                   if (!err2) {
                     var obj = {};
                     try { obj = JSON.parse(data); } catch (e) {update_evt.emit('done'); return; } //in case this file is truncated or corrupted
@@ -288,9 +299,8 @@ buck.on('compact',function(buck_idx) {
                             var old_size = enum_base[current_key]?enum_base[current_key][0].size:-1;
                             if (old_size == -1 || seq_id_cmp(enum_base[current_key][0].seq , obj2.vblob_seq_id) <= 0) {
                             if (old_size != -1 && enum_base[current_key][0].seq == obj2.vblob_seq_id) continue;
+                            if (old_size != -1) closure3(blob_dir+"/"+pref1+"/"+pref2, version_dir+"/"+pref1+"/"+pref2, filename, enum_base[current_key][0].seq, "current version ", MAX_DELETE_TRIES2);
                             //unlink version and blob of current version
-                            if (old_size != -1) fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
-                            if (old_size != -1) fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+enum_base[current_key][0].seq, function(err) {} );
                             if (old_size != -1 && enum_base[current_key][0].etag && !obj2.vblob_file_etag) _objects--; //deleting an object
                             if (old_size == -1) { old_size = 0; _objects += 1; if (!obj2.vblob_file_etag) _objects--; }
                             enum_base[current_key] = [{}];
@@ -301,8 +311,7 @@ buck.on('compact',function(buck_idx) {
                             _used_quota += enum_base[current_key][0].size - old_size;
                             } else {
                               //unlink obj2 version
-                              fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
-                              fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+filename+"-"+obj2.vblob_seq_id, function(err) {} );
+                              closure3(blob_dir+"/"+pref1+"/"+pref2, version_dir+"/"+pref1+"/"+pref2, filename, obj2.vblob_seq_id, "outdated versions ", MAX_DELETE_TRIES2);
                             }
                           } //end of for ver_idx
                     }//end of for key_idx
@@ -362,7 +371,6 @@ buck.on('compact',function(buck_idx) {
 
 function run_once() {
   containers = fs.readdirSync(root_path);
-  //console.log('running once: ' + containers);
   flush_event.counter = containers.length;
   var keys = Object.keys(global_enum_base);
   for (var x=0;x<keys.length;x++) {
@@ -380,7 +388,6 @@ function run_once() {
 
 function purge_once() {
   var keys = Object.keys(global_purge_list);
-  //console.log('starting to purge');
   for (var i = 0; i < keys.length; i++) {
     if (!global_enum_base[keys[i]]) { global_purge_list[keys[i]] = null; continue; }
     var files;
@@ -414,6 +421,14 @@ function purge_once() {
     var keys2 = Object.keys(global_purge_list[keys[i]]);
     var version_dir = root_path+"/"+keys[i]+"/versions";
     var blob_dir = root_path+"/"+keys[i]+"/blob";
+    var closure2 =function(bl,ve,fpa,seq,retry_cnt) {
+      fs.unlink(bl+"/"+fpa+"-"+seq,function(err){});
+      fs.unlink(ve+"/"+fpa+"/"+fpa+"-"+seq,function(err){
+        if (err && retry_cnt > 0)  setTimeout(function(){ 
+          closure2(bl,ve,fpa,seq,retry_cnt-1);
+        }, 8000 + Math.floor(Math.random()*1000));
+      });
+    };
     for (var idx2=0; idx2<keys2.length; idx2++) {
       var vec = global_enum_base[keys[i]][keys2[idx2]];
       if (!vec) continue; //non-exists
@@ -422,8 +437,7 @@ function purge_once() {
       if (min_seq && seq_id_cmp(min_seq,vec[0].seq) < 0) continue; //don't trim, there may be other versions in between
       var fp = get_key_fingerprint(keys2[idx2]);
       var pref1 = fp.substr(0,PREFIX_LENGTH), pref2 = fp.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
-      fs.unlink(blob_dir+"/"+pref1+"/"+pref2+"/"+fp+"-"+vec[0].seq,function(err){});
-      fs.unlink(version_dir+"/"+pref1+"/"+pref2+"/"+fp+"-"+vec[0].seq,function(err){});
+      closure2(blob_dir+"/"+pref1+"/"+pref2, version_dir+"/"+pref1+"/"+pref2, fp, vec[0].seq,MAX_DELETE_TRIES2);
       delete global_enum_base[keys[i]][keys2[idx2]];
       delete global_purge_list[keys[i]][keys2[idx2]];
       processed_logs[keys[i]] = {}; //trigger flush
@@ -431,8 +445,54 @@ function purge_once() {
     keys2 = Object.keys(global_purge_list[keys[i]]);
     if (keys2.length == 0) delete global_purge_list[keys[i]];
   }
-  //console.log('purge done');
   purge_done = true;
+}
+
+function folder_purge() {
+  var keys = Object.keys(global_enum_base);
+  var evt = new events.EventEmitter();
+  evt.counter = 0; evt.total = keys.length;
+  evt.on('done',function() {
+    evt.counter++;
+    if (evt.counter >= evt.total) {
+      folder_purge_done = true;
+    }
+  });
+  var closure1 = function(bucket) {
+    exec('find '+root_path+"/"+bucket+"/versions/ -type d -empty "+">"+tmp_path+"/folder_purge_"+bucket, function(error,stdour,stderr) {
+      var current_ts = new Date().valueOf();
+      if (error) { fs.unlink(tmp_path+"/folder_purge_"+bucket, function(err){}); evt.emit('done'); return; }
+      var versions =[];
+      try {
+        versions = fs.readFileSync(tmp_path+"/folder_purge_"+bucket).toString().split("\n");
+        fs.unlink(tmp_path+"/folder_purge_"+bucket, function(err){});
+      } catch(e) { fs.unlink(tmp_path+"/folder_purge_"+bucket, function(err){}); evt.emit('done'); return; }
+      var total = 0;
+      if (versions.length < 1) { evt.emit('done'); return; }
+      for (var idx=0; idx<versions.length; idx++) {
+        if (versions[idx] == '' || versions[idx] == ' ') { total++; if (total >= versions.length) evt.emit('done'); continue; }
+        //only purge xxx/versions/*/*/yyy
+        if (!versions[idx].match('/versions\/[a-f0-9]+\/[a-f0-9]+\/')) { total++; if (total >= versions.length) evt.emit('done'); continue; }
+        var closure2 = function(file) {
+          fs.stat(file, function(err, stats) {
+            if (err || new Date(stats.mtime).valueOf() + FOLDER_PURGE_INTERVAL > current_ts) {
+              total++;
+              if (total >= versions.length) evt.emit('done'); 
+              return;
+            }
+            fs.rmdir(file, function(err) {
+              total++;
+              if (total >= versions.length) evt.emit('done'); 
+            });
+          });
+        }
+        closure2(versions[idx]);
+      }
+    });
+  };
+  for (var i = 0; i < keys.length; i++) {
+    closure1(keys[i]);
+  }
 }
 
 if (long_running == true) {
@@ -442,6 +502,7 @@ app.get('/:container/:objname',function(req,res) {
   var file = req.params.objname;
   if (!global_enum_base[bucket]) { res.statusCode=404; res.end(); return;}
   if (!global_enum_base[bucket][file]) { res.statusCode=404; res.end(); return; }
+  if (!global_enum_base[bucket][file][0].etag) { res.statusCode=404; res.end(); return; }
   res.statusCode = 200;
   res.setHeader("seq-id",global_enum_base[bucket][file][0].seq);
   res.end();
@@ -462,4 +523,9 @@ else {
     purge_done = false;
     purge_once();
   }, PURGE_EXPIRATION);
+  setInterval(function() {
+    if (folder_purge_done != true) return;
+    folder_purge_done = false;
+    folder_purge();
+  }, FOLDER_PURGE_INTERVAL);
 }

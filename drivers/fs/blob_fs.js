@@ -25,8 +25,6 @@ var MAX_GC_QUEUE_LENGTH = 1600;
 var enum_cache = {};
 var enum_expire = {};
 var enum_queue = {};
-var prefix_cache = {}; //{bucket: { last_ts:ts, prefA: {last_ts:ts , prefB: {prefC ...}}...}
-var prefix_refresh_interval = 30000; //30 seconds
 
 function hex_val(ch)
 {
@@ -336,18 +334,12 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
   var da = new Date().valueOf();
   fn1 = fb.tmp_path+'/find1-'+da+"-"+Math.floor(Math.random() * 10000)+"-"+Math.floor(Math.random()*10000);
   fn2 = fb.tmp_path+'/find2-'+da+"-"+Math.floor(Math.random() * 10000)+"-"+Math.floor(Math.random()*10000);
-  var child1 = exec('find '+c_path+"/*/* -type d -empty > "+fn1, function(error,stdout,stderr) {
-      var child2 = exec('find '+c_path+"/*/* -type d > "+fn2, function(error,stdout,stderr) {
+  var child1 = exec('find '+c_path+"/ -type d -empty > "+fn1, function(error,stdout,stderr) {
+      var child2 = exec('find '+c_path+"/ -type d > "+fn2, function(error,stdout,stderr) {
         var child3 =  exec('diff -q '+fn1+" "+fn2, function(error,stdout,stderr) {
           if (stdout === null || stdout === undefined || stdout === '') {
             var child = exec('rm -rf '+fb.root_path+"/"+container_name,
               function (error, stdout, stderr) {
-                //remove the whole bucket prefix cache
-                try {
-                  delete prefix_cache[container_name];
-                } catch (err) {
-                  //totally ok if it's already been deleted
-                }
                 var header = common_header();
                 resp_code = 204; resp_header = header;
                 callback(resp_code, resp_header, null, null);
@@ -419,38 +411,14 @@ function generate_version_id(key)
   return key+'-'+da+'-'+Math.floor(Math.random()*1000)+'-'+Math.floor(Math.random()*1000);
 }
 
-//use prefix_cache to avoid unnecessary sync folder creation
 function create_prefix_folders(prefix_array, callback)
 {
   var resp = {};
   error_msg(404,"NoSuchBucket","Bucket does not exist.",resp);
   var path_pref = null;
-  var obj = null;
-  var parent_obj = null;
-  var now = new Date().valueOf();
-  var pos;
-  var bucket_name;
-  var substr1;
   for (var idx = 0; idx < prefix_array.length; idx++) {
-    if (idx == 0) {
-      //extract the bucket
-      pos = prefix_array[idx].lastIndexOf('/');
-      bucket_name = prefix_array[idx].substring(0,pos);
-      substr1 = prefix_array[idx].substring(pos+1);
-      try {
-        obj = prefix_cache[bucket_name][substr1];
-      } catch (err) {
-        obj = null;
-      }
-    } else {
-      parent_obj = obj;
-      obj = parent_obj[prefix_array[idx]];
-    }
     if (path_pref === null) path_pref = prefix_array[idx];
     else path_pref = path_pref + "/" + prefix_array[idx];
-    //cache hit
-    if (obj != null && obj != undefined &&
-      (obj.last_ts != null && obj.last_ts != undefined && now - obj.last_ts < prefix_refresh_interval)) continue;
     if (!Path.existsSync(path_pref)) {
       try {
         fs.mkdirSync(path_pref,"0775");
@@ -462,22 +430,6 @@ function create_prefix_folders(prefix_array, callback)
         //EEXIST: OK to proceed
         //ENOENT: error response no such container
       }
-    }
-    if (idx == 0) {
-      if (prefix_cache[bucket_name] == null || prefix_cache[bucket_name] == undefined) 
-        prefix_cache[bucket_name] = {};
-      obj = prefix_cache[bucket_name][substr1];
-      if (obj == null || obj == undefined)
-        prefix_cache[bucket_name][substr1] = {};
-      obj = prefix_cache[bucket_name][substr1];
-      obj.last_ts = now;
-    } else {
-      if (obj != null && obj != undefined) obj.last_ts = now;
-      else {
-        parent_obj[prefix_array[idx]] = {};
-        parent_obj[prefix_array[idx]].last_ts = now;
-      }
-      obj = parent_obj[prefix_array[idx]];
     }
   }
   return true;
@@ -512,8 +464,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   var temp_blob_path = temp_path + "-blob";
   var meta_json = { vblob_file_name : filename, vblob_file_path : "blob/"+prefix_path+version_id };
 //step 3 synchronously creating folders needed (in order not to lose any data events)
-  if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
-  if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) { fs.unlink(temp_path,function(err) {}); return; }
+  if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) return;
+  if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2,key_fingerprint],callback)) return;
 //step 4 stream blob
   var stream = fs.createWriteStream(temp_blob_path);
   var md5_etag = crypto.createHash('md5');
@@ -623,7 +575,7 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
   }
 };
 
-FS_blob.prototype.file_create_meta = function (container_name, filename, temp_path, opt,callback,fb,is_copy)
+FS_blob.prototype.file_create_meta = function (container_name, filename, temp_path, opt,callback,fb,is_copy, is_delete)
 {
   var resp = {};
   var resp_code, resp_header, resp_body;
@@ -659,8 +611,8 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
     }
     fb.logger.debug( ("Created meta for file "+filename+" in container_name "+container_name));
     var header = common_header();
-    header.ETag = opt.vblob_file_etag;
-    resp.resp_code = 200; resp.resp_body = null;
+    if (!is_delete) header.ETag = opt.vblob_file_etag;
+    resp.resp_code = is_delete?204:200; resp.resp_body = null;
     fb.logger.debug( ('is_copy: ' + is_copy));
     if (is_copy) {
       resp.resp_body = {"CopyObjectResult":{"LastModified":new Date(doc.vblob_update_time).toISOString(),"ETag":'"'+opt.vblob_file_etag+'"'}};
@@ -673,7 +625,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
       if (err) {
         fb.logger.error( ("In renaming file "+filename+" blob in container_name "+container_name+" "+err));
         if (resp !== null) {
-          error_msg(404,"NoSuchBucket",err,resp);
+          if (!is_delete) error_msg(500,"InternalError",err,resp);
           callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
         }
         fs.unlink(temp_path+"-"+seq_id,function(err) {});
@@ -683,13 +635,13 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
       //step 6 hard link to versions. This is a commit, and after this step it's always going to be re-done in recovery
       var prefix1 = doc.vblob_file_version.substr(0,PREFIX_LENGTH), prefix2 = doc.vblob_file_version.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
         //link to version, so version link > 1, now gctmp will consider it a committed put
-      fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
+      fs.link(temp_path+"-"+seq_id, fb.root_path + "/"+container_name+"/versions/" + prefix1 + "/" + prefix2 + "/" + doc.vblob_file_fingerprint + "/" + doc.vblob_file_fingerprint+"-"+seq_id,function (err) {
         if (err) {
           fs.unlink(temp_path+"-"+seq_id,function(err) {});
           fs.unlink(fb.root_path+"/"+container_name+"/"+doc.vblob_file_path,function(err){});
           fb.logger.error( ("In creating file "+filename+" meta in container_name "+container_name+" "+err));
           if (resp !== null) {
-            error_msg(500,"InternalError",err,resp);
+            if (!is_delete) error_msg(500,"InternalError",err,resp);
             callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
           }
           return;
@@ -745,6 +697,8 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
   //generate a fake version, just a place holder to let gc know there are work to do
   var version_id = generate_version_id(key_fingerprint);
   var prefix1 = key_fingerprint.substr(0,PREFIX_LENGTH), prefix2 = key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2);
+  if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) return;
+  if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2,key_fingerprint],callback)) return;
  //we explicitly generate a delete marker for both blob and meta, so delete and put follow the same procedure
   fs.writeFile(c_path+"/~tmp/"+version_id+"-blob", '', function(err) {
     if (err) {
@@ -754,7 +708,7 @@ FS_blob.prototype.file_delete_meta = function (container_name, filename, callbac
     }
     var obj = {vblob_file_name: filename, vblob_file_path: "blob/"+prefix1+"/"+prefix2+"/"+version_id, vblob_file_size : 0, vblob_file_version : version_id, vblob_file_fingerprint : key_fingerprint};
     //ready to call file_create_meta
-    fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, obj, callback, fb, false);
+    fb.file_create_meta(container_name,filename, c_path+"/~tmp/"+version_id, obj, callback, fb, false, true);
   });
 };
 
@@ -890,7 +844,7 @@ FS_blob.prototype.file_copy = function (container_name,filename,source_container
       dest_obj.vblob_file_size = obj.vblob_file_size; //not to override content-length!!
       //new file meta constructed, ready to create links etc.
       if (!create_prefix_folders([c_path+"/blob",prefix1,prefix2],callback)) return;
-      if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2],callback)) return;
+      if (!create_prefix_folders([c_path+"/versions", prefix1,prefix2,key_fingerprint],callback)) return;
       fs.link(src_path+"/"+obj.vblob_file_path, c_path+"/~tmp/"+version_id+"-blob", function(err) {
         if (err) {
           if (!retry_cnt) retry_cnt = 0;
@@ -934,7 +888,7 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
 //step2.1 calc unique hash for key
   var key_fingerprint = get_key_fingerprint(filename);
 //step2.2 gen unique version id
-  var file_path = c_path + "/versions/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint; //complete representation: /container_name/filename
+  var file_path = c_path + "/versions/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint+"/"+key_fingerprint; //complete representation: /container_name/filename
 //    error_msg(404,"NoSuchFile","No such file",resp);resp.resp_end();return;
   var etag_match=null, etag_none_match=null, date_modified=null, date_unmodified=null;
   var keys = Object.keys(options);
