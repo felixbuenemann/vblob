@@ -10,6 +10,9 @@ var events = require("events");
 var exec = require('child_process').exec;
 var zlib = require('zlib');
 var http = require('http');
+var seq_id_cmp = require('./utils').seq_id_cmp;
+var get_key_fingerprint = require('./utils').get_key_fingerprint;
+var hex2base64 = require('./utils').hex2base64;
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
@@ -25,46 +28,6 @@ var MAX_GC_QUEUE_LENGTH = 1600;
 var enum_cache = {};
 var enum_expire = {};
 var enum_queue = {};
-
-function hex_val(ch)
-{
-  if (48 <= ch && ch <= 57) { return ch - 48; }
-  return ch - 97 + 10;
-}
-
-function hex2base64(hex_str)
-{
-  hex_str = hex_str.toLowerCase();
-  var result = "";
-  var va = new Array(8);
-  var ca = new Array(8);
-  for (var idx = 0; idx < hex_str.length; )
-  {
-    for (var idx2 = 0; idx2 < 6; idx2++)
-    {
-      if (idx+idx2 < hex_str.length) {
-        va[idx2] = hex_str.charCodeAt(idx2+idx);
-        va[idx2] = hex_val(va[idx2]);
-      } else { va[idx2] = 0; }
-    }
-    ca[0] = base64_char_table.charAt((va[0] << 2) + (va[1] >> 2));
-    ca[1] = base64_char_table.charAt(((va[1]&0x03)<<4)+va[2]);
-    ca[2] = base64_char_table.charAt((va[3] << 2) + (va[4] >> 2));
-    ca[3] = base64_char_table.charAt(((va[4]&0x03)<<4)+va[5]);
-    if (idx + 5 < hex_str.length) {
-      //normal case
-      result += (ca[0]+ca[1]+ca[2]+ca[3]);
-    } else if (idx + 3 < hex_str.length) {
-      //padding 1
-      result += (ca[0]+ca[1]+ca[2]+"=");
-    } else {
-      //padding 2
-      result += (ca[0]+ca[1]+"==");
-    }
-    idx += 6;
-  }
-  return result;
-}
 
 function common_header()
 {
@@ -223,6 +186,7 @@ function FS_blob(option,callback)  //fow now no encryption for fs
   if (option.seq_port) { this.seq_port = parseInt(option.seq_port,10); } else this.seq_port = 9876;
   if (option.meta_host) { this.meta_host = option.meta_host; } else this.meta_host = "localhost";
   if (option.meta_port) { this.meta_port = parseInt(option.meta_port,10); } else this.meta_port = 9877;
+  if (option.read_direct) this.read_direct = option.read_direct;
   if (!this1.root_path) {
     this1.root_path = './fs_root'; //default fs root
     try {
@@ -379,30 +343,6 @@ function container_exists(container_name, callback,fb)
     return false;
   }
   return true;
-}
-
-function get_key_md5_hash(filename)
-{
-  var md5_name = crypto.createHash('md5');
-  md5_name.update(filename);
-  return md5_name.digest('hex');
-}
-
-//<md5 hash of the key>-<prefix of the key>-<suffix of the key>
-function get_key_fingerprint(filename)
-{
-  var digest = get_key_md5_hash(filename);
-  var prefix, suffix;
-  var file2 = filename.replace(/(\+|=|\^|#|\{|\}|\(|\)|\[|\]|%|\||,|:|!|;|\/|\$|&|@|\*|`|'|"|<|>|\?|\\)/g, "_"); //replacing all special chars with "_"
-  if (file2.length < 8) {
-    while (file2.length < 8) file2 += '0';
-    prefix = file2.substr(0,8);
-    suffix = file2.substr(file2.length - 8);
-  } else {
-    prefix = file2.substr(0,8);
-    suffix = file2.substr(file2.length-8);
-  }
-  return digest+'-'+prefix+'-'+suffix;
 }
 
 function generate_version_id(key)
@@ -1045,8 +985,51 @@ FS_blob.prototype.file_read = function (container_name, filename, options, callb
       closure2();
     }
   }).on('error', function(err) {
-    error_msg(500,"InternalError",err,resp);
-    callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+    if (!fb.read_direct) {
+      error_msg(500,"InternalError",err,resp);
+      callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+    } else {
+      //read on-disk key folder directly
+      fs.readdir(c_path + "/versions/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint+"/", function(err, files) {
+        if (err) {
+          if (err.code == 'ENOENT')
+            error_msg(404,"NoSuchFile",err,resp);
+          else error_msg(500,"InternalError",err,resp);
+          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          return;
+        }
+        //find the max seq number, which should be the latest version
+        var max_seq = null;
+        for (var idx=0; idx<files.length;idx++) {
+          var filename2 = files[idx];
+          var epoch,cnt,seq_id2;
+          cnt = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get cnt
+          filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove cnt
+          epoch = filename2.substr(filename2.lastIndexOf('-')+1,filename2.length); //get epoch
+          filename2 = filename2.substr(0,filename2.lastIndexOf('-')); //remove epoch
+          seq_id2 = epoch+"-"+cnt;
+          if (!max_seq || seq_id_cmp(seq_id2, max_seq) > 0) max_seq = seq_id2;
+        }
+        if (!max_seq) {
+          error_msg(404,"NoSuchFile","No such file.",resp);
+          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+          return;
+        }
+        //make sure this version is not left-over trash, check if blob file exists
+        fs.stat(c_path + "/blob/" + key_fingerprint.substr(0,PREFIX_LENGTH)+"/"+key_fingerprint.substr(PREFIX_LENGTH,PREFIX_LENGTH2)+"/"+key_fingerprint+"-"+max_seq, function(err, stats) {
+          if (err) {
+            if (err.code == 'ENOENT')
+              error_msg(404,"NoSuchFile",err,resp);
+            else error_msg(500,"InternalError",err,resp);
+            callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+            return;
+          }
+          seq_id = max_seq;
+          options.seq_id = max_seq;
+          closure2();
+        });
+      });
+    }
   });
 };
 

@@ -7,45 +7,9 @@ var exec = require('child_process').exec;
 var crypto = require('crypto');
 var zlib = require('zlib');
 var express = require('express');
+var seq_id_cmp = require('./utils').seq_id_cmp;
+var get_key_fingerprint = require('./utils').get_key_fingerprint;
 
-function seq_id_cmp(seq1, seq2)
-{
-  var epoch1, epoch2, cnt1, cnt2;
-  epoch1 = parseInt(seq1.substr(0, seq1.indexOf('-')),10);
-  epoch2 = parseInt(seq2.substr(0, seq2.indexOf('-')),10);
-  if (epoch1 < epoch2) return -1;
-  if (epoch1 > epoch2) return 1;
-  cnt1 = parseInt(seq1.substring(seq1.indexOf('-')+1), 10);
-  cnt2 = parseInt(seq2.substring(seq2.indexOf('-')+1), 10);
-  if (cnt1 < cnt2) return -1;
-  if (cnt1 > cnt2) return 1;
-  return 0;
-}
-
-//identical to the ones in blob_fs
-function get_key_md5_hash(filename)
-{
-  var md5_name = crypto.createHash('md5');
-  md5_name.update(filename);
-  return md5_name.digest('hex');
-}
-
-//<md5 hash of the key>-<prefix of the key>-<suffix of the key>
-function get_key_fingerprint(filename)
-{
-  var digest = get_key_md5_hash(filename);
-  var prefix, suffix;
-  var file2 = filename.replace(/(\+|=|\^|#|\{|\}|\(|\)|\[|\]|%|\||,|:|!|;|\/|\$|&|@|\*|`|'|"|<|>|\?|\\)/g, "_"); //replacing all special chars with "_"
-  if (file2.length < 8) {
-    while (file2.length < 8) file2 += '0';
-    prefix = file2.substr(0,8);
-    suffix = file2.substr(file2.length - 8);
-  } else {
-    prefix = file2.substr(0,8);
-    suffix = file2.substr(file2.length-8);
-  }
-  return digest+'-'+prefix+'-'+suffix;
-}
 var PREFIX_LENGTH = 2;
 var PREFIX_LENGTH2 = 1;
 var MAX_WRITE_TRIES = 3;
