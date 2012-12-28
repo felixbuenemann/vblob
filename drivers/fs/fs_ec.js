@@ -163,6 +163,11 @@ buck.on('compact',function(buck_idx) {
     var _used_quota = 0;
     var _objects = 0; 
     var temp_file = tmp_path+"/"+new Date().valueOf()+"-"+Math.floor(Math.random()*10000)+"-"+Math.floor(Math.random()*10000);
+    if (containers[buck_idx].match('\\.delete\\.[0-9]+$')) {
+      flush_event.counter--;
+      if (flush_event.counter == 0) flush_event.emit('flush');
+      return;
+    }
     var child = exec('find '+ enum_dir +"/ -type f -name \"delta-*\" >"+temp_file,
       function (error, stdout, stderr) {
         if (!error) {
@@ -354,6 +359,7 @@ function purge_once() {
   var keys = Object.keys(global_purge_list);
   for (var i = 0; i < keys.length; i++) {
     if (!global_enum_base[keys[i]]) { global_purge_list[keys[i]] = null; continue; }
+    if (keys[i].match('\\.delete\\.[0-9]+$')) { global_purge_list[keys[i]] = null; continue; }
     var files;
     try {
       files = fs.readdirSync(root_path+"/"+keys[i]+"/~tmp");
@@ -455,12 +461,23 @@ function folder_purge() {
     });
   };
   for (var i = 0; i < keys.length; i++) {
-    closure1(keys[i]);
+    if (keys[i].match('\\.delete\\.[0-9]+$')) {
+      evt.emit('done');
+    } else closure1(keys[i]);
   }
 }
 
 if (long_running == true) {
 var app = express.createServer();
+app.get('/:container[/]{0,1}$',function(req,res) {
+  var bucket = req.params.container;
+  if (!global_enum_base[bucket]) { res.statusCode=404; res.end(); return;}
+  if (global_quota_map[bucket] == null || global_objects_map[bucket] == null) {res.statusCode=404; res.end(); return;}
+  res.statusCode = 200;
+  res.setHeader("quota", global_quota_map[bucket]);
+  res.setHeader("objects", global_objects_map[bucket]);
+  res.end();
+});
 app.get('/:container/:objname',function(req,res) {
   var bucket = req.params.container;
   var file = req.params.objname;

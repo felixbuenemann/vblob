@@ -213,7 +213,7 @@ function FS_blob(option,callback)  //fow now no encryption for fs
         //start sequence server
         var node_exepath = option.node_exepath ? option.node_exepath : process.execPath;
         var seq_exepath =  __dirname+"/seq_server.js";
-        exec(node_exepath+" "+seq_exepath+" --epoch "+this1.root_path+"/epoch_file" + " 2>&1 >/dev/null", function(error,stdout,stderr) {
+        exec(node_exepath+" "+seq_exepath+" --epoch "+this1.root_path+"/epoch_file" + " --root "+this1.root_path+" 2>&1 >/dev/null", function(error,stdout,stderr) {
         })
       }
     } else { this1.logger.error( ('root folder in fs driver is not mounted')); }
@@ -294,34 +294,99 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
     );
     return;
   }
-  var fn1,fn2;
-  var da = new Date().valueOf();
-  fn1 = fb.tmp_path+'/find1-'+da+"-"+Math.floor(Math.random() * 10000)+"-"+Math.floor(Math.random()*10000);
-  fn2 = fb.tmp_path+'/find2-'+da+"-"+Math.floor(Math.random() * 10000)+"-"+Math.floor(Math.random()*10000);
-  var child1 = exec('find '+c_path+"/ -type d -empty > "+fn1, function(error,stdout,stderr) {
-      var child2 = exec('find '+c_path+"/ -type d > "+fn2, function(error,stdout,stderr) {
-        var child3 =  exec('diff -q '+fn1+" "+fn2, function(error,stdout,stderr) {
-          if (stdout === null || stdout === undefined || stdout === '') {
-            var child = exec('rm -rf '+fb.root_path+"/"+container_name,
+  http.get({hostname:fb.seq_host, port:fb.seq_port, headers:{bucket:container_name,op:'GET'}},function(res) {
+    var start_seq_id = res.headers["seq-id"];
+    fs.readdir(fb.root_path + "/" + container_name + "/~tmp", function(err,files) {
+      if (err) {
+        var resp = {};
+        error_msg(500,"InternalError",err,resp);
+        resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+        callback(resp_code, resp_header, resp_body, null);
+        return;
+      }
+      for (var idx1=0; idx1 < files.length; idx1++) {
+        if (
+            files[idx1].match("\-[0-9]+\-[0-9]+$") ||
+            files[idx1].match("\-blob$")
+           ) {
+          var resp = {};
+          error_msg(409,"BucketNotEmpty","The bucket you tried to delete is not empty.",resp);
+          resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+          callback(resp_code, resp_header, resp_body, null);
+          return;
+        }
+      }
+      fs.readdir(fb.root_path+"/"+container_name+"/~enum",function(err,files2) {
+        if (err) {
+          var resp = {};
+          error_msg(500,"InternalError",err,resp);
+          resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+          callback(resp_code, resp_header, resp_body, null);
+          return;
+        }
+        for (var idx2=0; idx2 < files2.length; idx2++) {
+          if ( files2[idx2].match("^delta\-") ) {
+            var resp = {};
+            error_msg(409,"BucketNotEmpty","The bucket you tried to delete is not empty.",resp);
+            resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+            callback(resp_code, resp_header, resp_body, null);
+            return;
+          }
+        }
+        //contact meta server for emptiness
+        http.get({hostname:fb.meta_host, port:fb.meta_port, path:'/'+container_name}, function(res2) {
+          //check if _objects = 0
+          if (res2.statusCode != 200) {
+            var resp = {};
+            error_msg(500,"InternalError","Cannot get bucket information.",resp);
+            resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+            callback(resp_code, resp_header, resp_body, null);
+            return;
+          }
+          if (res2.headers["objects"] != 0) {
+            var resp = {};
+            error_msg(409,"BucketNotEmpty","The bucket you tried to delete is not empty.",resp);
+            resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+            callback(resp_code, resp_header, resp_body, null);
+            return;
+          }
+          //send to seq server do to ats delete
+          http.get({hostname:fb.seq_host, port:fb.seq_port, headers:{op:"DELETE", bucket:container_name, "seq-id":start_seq_id}},function(res3) {
+            if (res3.statusCode != 200) {
+              var resp = {};
+              error_msg(409,"BucketNotEmpty","The bucket you tried to delete is not empty.",resp);
+              resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+              callback(resp_code, resp_header, resp_body, null);
+              return;
+            }
+            var child = exec('rm -rf '+fb.root_path+"/"+res3.headers["location"],
               function (error, stdout, stderr) {
                 var header = common_header();
                 resp_code = 204; resp_header = header;
                 callback(resp_code, resp_header, null, null);
               }
-            );
-          } else {
+            ); //end of rm 
+          }).on('error', function(err) {
             var resp = {};
-            error_msg(409,"BucketNotEmpty","The bucket you tried to delete is not empty.",resp);
+            error_msg(500,"InternalError",err,resp);
             resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
             callback(resp_code, resp_header, resp_body, null);
-          }
-          var retry_cnt=0;
-          //suppress temporary failures from underlying storage 
-          while (retry_cnt < MAX_DEL_RETRY) { try { fs.unlinkSync(fn1); } catch (e) {} ; retry_cnt++; }
-          retry_cnt=0;
-          while (retry_cnt < MAX_DEL_RETRY) { try { fs.unlinkSync(fn2); } catch (e) {} ; retry_cnt++; }
-        });
-   });
+            return;
+          }); //http get seq for delete
+        }).on('error', function(err) {
+          var resp = {};
+          error_msg(500,"InternalError",err,resp);
+          resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+          callback(resp_code, resp_header, resp_body, null);
+          return;
+        }); //http.get meta
+      }); //fs.readdir enum
+    });//fs.readdir tmp
+  }).on('error',function(err) { //http error
+    var resp = {};
+    error_msg(500,"InternalError",err,resp);
+    resp_code = resp.resp_code; resp_header = resp.resp_header; resp_body = resp.resp_body;
+    callback(resp_code, resp_header, resp_body, null);
   });
 };
 
@@ -533,7 +598,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
   doc.vblob_file_name = filename;
   var seq_id;
   //step 5.6 getting a globally ordered sequence(tx) id from sequence server
-  http.get("http://"+fb.seq_host+":"+fb.seq_port, function(res) {
+  http.get({hostname:fb.seq_host,port:fb.seq_port,headers:{bucket:container_name}}, function(res) {
   seq_id = res.headers["seq-id"];
   doc.vblob_seq_id = seq_id;
   doc.vblob_file_path = doc.vblob_file_path.substring(0,doc.vblob_file_path.lastIndexOf('/')+1)+doc.vblob_file_fingerprint+"-"+seq_id; 
