@@ -692,6 +692,7 @@ FS_blob.prototype.file_create_meta = function (container_name, filename, temp_pa
 
 FS_blob.prototype.file_delete_meta = function (container_name, filename, callback, fb)
 {
+  var resp = {};
   var resp_code, resp_header, resp_body;
   resp_code = resp_header = resp_body = null;
   var c_path = fb.root_path + "/" + container_name;
