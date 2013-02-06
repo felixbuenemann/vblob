@@ -16,7 +16,6 @@ var hex2base64 = require('./utils').hex2base64;
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
-var base64_char_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 var TEMP_FOLDER = "~tmp";
 var ENUM_FOLDER = "~enum";
 var MAX_COPY_RETRY = 2;

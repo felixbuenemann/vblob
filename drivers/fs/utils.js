@@ -1,4 +1,5 @@
 var crypto = require('crypto');
+var base64_char_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 exports.seq_id_cmp = function (seq1, seq2)
 {
