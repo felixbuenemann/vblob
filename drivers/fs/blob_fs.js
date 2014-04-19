@@ -3,7 +3,6 @@ Copyright (c) 2011-2012 VMware, Inc.
 Author: wangs@vmware.com
 */
 var fs = require('fs');
-var Path = require('path');
 var crypto = require('crypto');
 var util = require('util');
 var events = require("events");
@@ -235,7 +234,7 @@ FS_blob.prototype.container_create = function(container_name,callback,fb)
     }
     var c_path = fb.root_path + "/" + container_name;
     try {
-      if (Path.existsSync(c_path) === false)
+      if (fs.existsSync(c_path) === false)
       {
         fb.logger.debug("path "+c_path+" does not exist! Let's create one");
         fs.mkdirSync(c_path,"0775");
@@ -243,16 +242,16 @@ FS_blob.prototype.container_create = function(container_name,callback,fb)
       {
         fb.logger.debug(("path "+c_path+" exists!"));
       }
-      if (Path.existsSync(c_path+"/"+TEMP_FOLDER) === false)
+      if (fs.existsSync(c_path+"/"+TEMP_FOLDER) === false)
       {
         fs.mkdirSync(c_path+"/"+TEMP_FOLDER,"0775");
       }
-      if (Path.existsSync(c_path+"/"+ENUM_FOLDER) === false)
+      if (fs.existsSync(c_path+"/"+ENUM_FOLDER) === false)
       {
         fs.mkdirSync(c_path+"/"+ENUM_FOLDER,"0775");
       }
       fs.writeFileSync(c_path+"/"+ENUM_FOLDER+"/base", "{}");
-      if (Path.existsSync(c_path+"/ts") === false) //double check ts
+      if (fs.existsSync(c_path+"/ts") === false) //double check ts
       {
         fb.logger.debug( ("timestamp "+c_path+"/ts does not exist. Need to create one"));
         fs.writeFileSync(c_path+"/ts", "DEADBEEF");
@@ -282,7 +281,7 @@ FS_blob.prototype.container_delete = function(container_name,callback,fb)
   var resp_code, resp_header, resp_body;
   resp_code = resp_header = resp_body = null;
   var c_path = fb.root_path + "/" + container_name+"/versions";
-  if (Path.existsSync(c_path) === false)
+  if (fs.existsSync(c_path) === false)
   { //shortcut, remove directly
     var child = exec('rm -rf '+fb.root_path+"/"+container_name,
       function (error, stdout, stderr) {
@@ -398,7 +397,7 @@ function container_exists(container_name, callback,fb)
   var resp_code, resp_header, resp_body;
   resp_code = resp_header = resp_body = null;
   var c_path = fb.root_path + "/" + container_name;
-  if (!Path.existsSync(c_path)) {
+  if (!fs.existsSync(c_path)) {
     fb.logger.error( ("no such container_name"));
     var resp = {};
     error_msg(404,"NoSuchBucket","No such bucket on disk",resp);
@@ -423,7 +422,7 @@ function create_prefix_folders(prefix_array, callback)
   for (var idx = 0; idx < prefix_array.length; idx++) {
     if (path_pref === null) path_pref = prefix_array[idx];
     else path_pref = path_pref + "/" + prefix_array[idx];
-    if (!Path.existsSync(path_pref)) {
+    if (!fs.existsSync(path_pref)) {
       try {
         fs.mkdirSync(path_pref,"0775");
       } catch(err) {
