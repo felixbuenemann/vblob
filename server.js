@@ -8,6 +8,7 @@ var j2x = require('./common/json2xml'); //json to xml transformation
 var util = require('util');
 var fs = require('fs');
 var events = require('events');
+var quote_re = require('regexp-quote');
 var drivers = { }; //storing backend driver objects
 var driver_order = { }; //give sequential numbering for drivers
 var current_driver = null; //current driver in use
@@ -62,6 +63,19 @@ if (config.ssl) {
 } else {
   var app = express.createServer( );
 }
+
+if (config.host) {
+  var bucketPattern = new RegExp('^(.+)\\.'+quote_re(config.host)+'(:'+config.port+')?$', 'i');
+
+  app.use(function(req, res, next) {
+     var subdomain = bucketPattern.exec(req.headers.host);
+     if (subdomain !== null && valid_name(subdomain[1])) {
+       req.url = '/' + subdomain[1] + req.url;
+     }
+     next();
+  });
+}
+
 var server_ready = new events.EventEmitter();
 server_ready.pending_dr = 1; //one driver at any time
 
