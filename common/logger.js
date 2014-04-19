@@ -3,7 +3,7 @@ Copyright (c) 2011 VMware, Inc.
 */
 //logger type is a string specifying the logger type name;  logger_file is a string pointing the where the log should be written
 //logger_file not defined means writing to stdout
-var Path = require('path');
+var fs = require('fs');
 function Logger(logger_type, logger_file)
 {
   var self1 = this;
@@ -13,7 +13,7 @@ function Logger(logger_type, logger_file)
     if (logger_file) {
       this.logger.add(this.logger.transports.File, {filename:logger_file}).remove(this.logger.transports.Console);
       setInterval(function() {
-        if (Path.existsSync(logger_file) === false)
+        if (fs.existsSync(logger_file) === false)
         {
           self1.logger.remove(self1.logger.transports.File);
           self1.logger.add(self1.logger.transports.File, {filename:logger_file});
