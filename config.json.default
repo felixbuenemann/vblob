@@ -19,6 +19,9 @@
     }
     ],
     "port": "9981",
+    "ssl": false,
+    "ssl_key": "localhost.key",
+    "ssl_cert": "localhost.crt",
     "current_driver": "fs-1",
     "logtype": "winston",
     "logfile": "./log.txt",
