@@ -78,3 +78,7 @@ exports.hex2base64 = function (hex_str)
   }
   return result;
 }
+
+exports.is_valid_base64 = function (base64_str) {
+  return base64_str.match(/^[a-zA-Z0-9+/\r\n]+={0,2}$/) !== null
+}

@@ -12,6 +12,7 @@ var http = require('http');
 var seq_id_cmp = require('./utils').seq_id_cmp;
 var get_key_fingerprint = require('./utils').get_key_fingerprint;
 var hex2base64 = require('./utils').hex2base64;
+var valid_base64 = require('./utils').is_valid_base64;
 var PREFIX_LENGTH = 2; //how many chars we use for hash prefixes
 var PREFIX_LENGTH2 = 1; //second level prefix length
 var MAX_LIST_LENGTH = 1000; //max number of files to list
@@ -34,15 +35,18 @@ function common_header()
   return header;
 }
 
-function error_msg(statusCode,code,msg,resp)
+function error_msg(statusCode,code,msg,resp,additionalInfo)
 {
+  info = {
+    "Code": code,
+    "Message": ( msg && msg.toString ) ? msg.toString() : ""
+  };
+  if (additionalInfo !== undefined) {
+    for (attr in additionalInfo) { info[attr] = additionalInfo[attr]; }
+  }
   resp.resp_code = statusCode;
   resp.resp_header = common_header();
-  resp.resp_body = {"Error":{
-    "Code": code,
-    "Message" : ( msg && msg.toString )? msg.toString() : ""
-  }};
-  //no additional info for now
+  resp.resp_body = {"Error": info};
 }
 
 function start_collector(option,fb)
@@ -472,7 +476,8 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
 //step 4 stream blob
   var stream = fs.createWriteStream(temp_blob_path);
   var md5_etag = crypto.createHash('md5');
-  var md5_base64 = null;
+  var calculated_digest = null;
+  var expected_digest = create_options['content-md5'];
   var file_size = 0;
   var upload_failed = false;
   var blob_fd = null;
@@ -520,16 +525,30 @@ FS_blob.prototype.file_create = function (container_name,filename,create_options
 
   var closure1 = function(md5_etag) {
     var opts = {vblob_file_name: filename, vblob_file_path: "blob/"+prefix_path+version_id, vblob_file_etag : md5_etag, vblob_file_size : file_size, vblob_file_version : version_id, vblob_file_fingerprint : key_fingerprint};
-    if (create_options['content-md5']) {
-      //check if content-md5 matches
-      md5_base64 = hex2base64(md5_etag);
-      if (md5_base64 !== create_options['content-md5']) // does not match
+    if (expected_digest) {
+      if (!valid_base64(expected_digest) ||
+          expected_digest.length != 24) // malformed base64
       {
         if (resp !== null) {
-          error_msg(400,"InvalidDigest","The Content-MD5 you specified was invalid.",resp);
+          info = {"Content-MD5": expected_digest};
+          error_msg(400,"InvalidDigest","The Content-MD5 you specified was invalid.",resp,info);
           callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
         }
-        fb.logger.error( (filename+' md5 not match: uploaded: '+ md5_base64 + ' specified: ' + create_options['content-md5']));
+        fb.logger.error( (filename+' md5 malformed base64: ' + expected_digest));
+        data.destroy();
+        fs.unlink(temp_blob_path,function(err) {});
+        return;
+      }
+      //check if content-md5 matches
+      calculated_digest = hex2base64(md5_etag);
+      if (calculated_digest !== expected_digest) // does not match
+      {
+        if (resp !== null) {
+          var info = {"ExpectedDigest": expected_digest, "CalculatedDigest": calculated_digest};
+          error_msg(400,"BadDigest","The Content-MD5 you specified did not match what we received.",resp,info);
+          callback(resp.resp_code, resp.resp_header, resp.resp_body, null);
+        }
+        fb.logger.error( (filename+' md5 not match: uploaded: '+ calculated_digest + ' specified: ' + expected_digest));
         data.destroy();
         fs.unlink(temp_blob_path,function(err) {});
         return;
