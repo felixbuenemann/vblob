@@ -54,12 +54,19 @@ if (config.auth) {
   }
 }
 
-var app = express.createServer( );
+if (config.ssl) {
+  var app = express.createServer({
+    key: fs.readFileSync(config.ssl_key),
+    cert: fs.readFileSync(config.ssl_cert)
+  });
+} else {
+  var app = express.createServer( );
+}
 var server_ready = new events.EventEmitter();
 server_ready.pending_dr = 1; //one driver at any time
 
 server_ready.on('start', function() {
-  logger.info(('listening to port ' + config.port));
+  logger.info(('listening to port ' + config.port + (config.ssl ? ' with SSL': '')));
   if (config.port)
   { app.listen(parseInt(config.port,10));}
 });
@@ -321,6 +328,9 @@ app.get('/~config[/]{0,1}$',function(req,res) {
   //construct the configuration json and send back
   var conf_obj = {};
   conf_obj.port = config.port;
+  conf_obj.ssl = config.ssl;
+  conf_obj.ssl_key = config.ssl_key;
+  conf_obj.ssl_cert = config.ssl_cert;
   conf_obj.logtype = config.logtype;
   conf_obj.logfile = config.logfile;
   conf_obj.keyID = config.keyID;

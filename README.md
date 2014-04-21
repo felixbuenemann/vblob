@@ -104,6 +104,9 @@ NOTE: if no config.json file is found, the gateway will use the settings from `c
         }
         ],
         "port": "<port>",
+        "ssl": <set to true to enable SSL>,
+        "ssl_key": "<pathname of SSL private key>",
+        "ssl_cert": "<pathname of SSL certificate>",
         "current_driver": "<driver-name>",
         "logtype": "winston",
         "logfile": "<pathname for the log>",
