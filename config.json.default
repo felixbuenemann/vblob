@@ -17,6 +17,7 @@
         }
     }
     ],
+    "host": "localhost",
     "port": "9981",
     "current_driver": "fs-1",
     "logtype": "winston",
