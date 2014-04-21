@@ -17,6 +17,7 @@
         }
     }
     ],
+    "host": "localhost",
     "port": "9981",
     "ssl": false,
     "ssl_key": "localhost.key",
