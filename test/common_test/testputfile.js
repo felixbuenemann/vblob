@@ -40,7 +40,7 @@ suite.addBatch({
     }),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
-      assert.isString(res.headers.etag);
+      assert.equal(res.headers.etag, '"f4cfe1ebcc06dc5629e824fc99457aae"');
     } 
   }
 }).addBatch({
