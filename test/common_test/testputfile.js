@@ -61,12 +61,35 @@ suite.addBatch({
     } 
   }
 }).addBatch({
-  'PUT container/testputfile-1.txt': {
-    topic: api.put_data(container_name+'/testputfile-1.txt','./file1.txt',{'content-md5':'9M/h68wG3FYp6CT8mUV6rg='}),
+  'PUT container/testputfile-1.txt with invalid digest': {
+    topic: api.put_data(container_name+'/testputfile-1.txt','./file1.txt',{'content-md5':'invalid digest'}),
     'should respond with a 400 code':  assertStatus(400),
     'should respond with error message': function (err,res) {
       assert.isObject(res.resp_body.Error);
-    } 
+    },
+    'should respond with error code InvalidDigest': function (err,res) {
+      assert.equal(res.resp_body.Error.Code, 'InvalidDigest');
+    },
+    'should respond with invalid Content-MD5': function (err,res) {
+      assert.equal(res.resp_body.Error['Content-MD5'], 'invalid digest');
+    }
+  }
+}).addBatch({
+  'PUT container/testputfile-1.txt with wrong digest': {
+    topic: api.put_data(container_name+'/testputfile-1.txt','./file1.txt',{'content-md5':'qtIhntcypiFuS7RrAFXBUw=='}),
+    'should respond with a 400 code':  assertStatus(400),
+    'should respond with error message': function (err,res) {
+      assert.isObject(res.resp_body.Error);
+    },
+    'should respond with error code BadDigest': function (err,res) {
+      assert.equal(res.resp_body.Error.Code, 'BadDigest');
+    },
+    'should respond with ExpectedDigest': function (err,res) {
+      assert.equal(res.resp_body.Error.ExpectedDigest, 'qtIhntcypiFuS7RrAFXBUw==');
+    },
+    'should respond with CalculatedDigest': function (err,res) {
+      assert.equal(res.resp_body.Error.CalculatedDigest, '9M/h68wG3FYp6CT8mUV6rg==');
+    }
   }
 }).addBatch({
   'DELETE container/testputfile-1.txt' : {
