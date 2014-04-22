@@ -338,6 +338,12 @@ S3_Driver.prototype.container_list = function(callback)
   this.client.container_list(callback);
 };
 
+S3_Driver.prototype.container_location = function(bucket_name,callback)
+{
+  if (check_client(this.client,callback) === false) return;
+  this.client.list_location(bucket_name,callback);
+};
+
 /*
   queries:  marker / prefix / delimiter / max-keys
 */

@@ -356,11 +356,15 @@ app.get('/:container[/]{0,1}$',function(req,res) {
     res.client_closed = true;
   });
   var opt = {};
-  if (req.query.marker) { opt.marker = req.query.marker; }
-  if (req.query.prefix) { opt.prefix = req.query.prefix; }
-  if (req.query.delimiter) { opt.delimiter = req.query.delimiter; }
-  if (req.query["max-keys"]) { opt["max-keys"] = req.query["max-keys"]; }
-  current_driver.file_list(req.params.container,opt,general_resp(res,file_list_post_proc,req.method.toLowerCase()));
+  if (req.query.location !== undefined) {
+    current_driver.container_location(req.params.container,general_resp(res,null,req.method.toLowerCase()));
+  } else {
+    if (req.query.marker) { opt.marker = req.query.marker; }
+    if (req.query.prefix) { opt.prefix = req.query.prefix; }
+    if (req.query.delimiter) { opt.delimiter = req.query.delimiter; }
+    if (req.query["max-keys"]) { opt["max-keys"] = req.query["max-keys"]; }
+    current_driver.file_list(req.params.container,opt,general_resp(res,file_list_post_proc,req.method.toLowerCase()));
+  }
 });
 
 var get_hdrs = [ 'if-modified-since','if-unmodified-since', 'if-match', 'if-none-match'];
