@@ -1191,6 +1191,15 @@ FS_blob.prototype.container_list = function()
   return  fs.readdirSync(this.root_path);
 };
 
+FS_blob.prototype.container_location = function(container_name, callback)
+{
+  var resp_code, resp_header, resp_body;
+  resp_code = 200;
+  resp_header = common_header();
+  resp_body = {LocationConstraint: ''};
+  callback(resp_code, resp_header, resp_body, null);
+};
+
 function render_containers(dirs,callback,fb)
 {
   var resp_code, resp_header, resp_body;
@@ -1246,6 +1255,11 @@ FS_Driver.prototype.container_list = function (callback) {
   if (check_client(this.client,callback) === false) return;
   var dirs = this.client.container_list();
   render_containers(dirs,callback,this.client);
+};
+
+FS_Driver.prototype.container_location = function (container_name,callback) {
+  if (check_client(this.client,callback) === false) return;
+  this.client.container_location(container_name,callback,this.client);
 };
 
 FS_Driver.prototype.file_list = function(container_name,option,callback) {

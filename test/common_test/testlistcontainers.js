@@ -27,6 +27,14 @@ suite.addBatch({
     } 
   }
 }).addBatch({
+  'GET container?location' : {
+    topic: api.get(container_name+'?location'),
+    'should respond with a 200 OK':  assertStatus(200),
+    'should respond with the region of the container': function (err,res) {
+      assert.isObject(res.resp_body.LocationConstraint);
+    }
+  }
+}).addBatch({
   'GET /': {
     topic: api.get('/'),
     'should respond with a 200 OK':  assertStatus(200),
