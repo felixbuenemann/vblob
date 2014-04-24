@@ -14,7 +14,7 @@
     "winston": "^0.5.9"
   },
   "devDependencies": {
-    "vows": "^0.6.1"
+    "vows": "0.7.x"
   },
   "engines": {
     "node": ">= 0.8.0"
