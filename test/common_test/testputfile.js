@@ -31,7 +31,7 @@ suite.addBatch({
   }
 }).addBatch({
   'PUT container/testputfile-1.txt': {
-    topic: api.put_data(container_name+'/testputfile-1.txt','./file1.txt',{
+    topic: api.put_data(container_name+'/testputfile-1.txt','./test/file1.txt',{
       'cache-control':'No-cache', 'content-disposition':'attachment; filename=testing.txt',
       'content-encoding':'x-gzip', 'content-type':'text/plain',
       'expires':'Thu, 01 Dec 1994 16:00:00 GMT', 'x-amz-meta-hello':'world'
@@ -47,7 +47,7 @@ suite.addBatch({
     topic: api.get_data(container_name+'/testputfile-1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the content of the file': function (err,res) {
-      var str1 = fs.readFileSync('./file1.txt');
+      var str1 = fs.readFileSync('./test/file1.txt');
       assert.equal(str1,res.resp_body);
     },
     'should have correct meta info': function(err,res) {
@@ -61,7 +61,7 @@ suite.addBatch({
   }
 }).addBatch({
   'PUT container/testputfile-1.txt': {
-    topic: api.put_data(container_name+'/testputfile-1.txt','./file1.txt',{'content-md5':'9M/h68wG3FYp6CT8mUV6rg='}),
+    topic: api.put_data(container_name+'/testputfile-1.txt','./test/file1.txt',{'content-md5':'9M/h68wG3FYp6CT8mUV6rg='}),
     'should respond with a 400 code':  assertStatus(400),
     'should respond with error message': function (err,res) {
       assert.isObject(res.resp_body.Error);

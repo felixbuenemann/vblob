@@ -31,7 +31,7 @@ suite.addBatch({
   }
 }).addBatch({
   'PUT container/testgetfile-1.txt': {
-    topic: api.put_data(container_name+'/testgetfile-1.txt','./file1.txt'),
+    topic: api.put_data(container_name+'/testgetfile-1.txt','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
@@ -42,7 +42,7 @@ suite.addBatch({
     topic: api.get_data(container_name+'/testgetfile-1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the content of the file': function (err,res) {
-      var str1 = fs.readFileSync('./file1.txt');
+      var str1 = fs.readFileSync('./test/file1.txt');
       assert.equal(str1,res.resp_body);
     } 
   },
@@ -124,7 +124,7 @@ suite.addBatch({
     topic: api.get_data(container_name+'/testgetfile-1.txt',{Range:"bytes=0-3"}),
     'should response with 206': assertStatus(206),
     'should have correct content': function(err,res) {
-      var str1 = fs.readFileSync('./file1.txt').toString();
+      var str1 = fs.readFileSync('./test/file1.txt').toString();
       assert.equal(str1.substring(0,4),res.resp_body);
     }
   },
@@ -132,7 +132,7 @@ suite.addBatch({
     topic: api.get_data(container_name+'/testgetfile-1.txt',{Range:"bytes=3-"}),
     'should response with 206': assertStatus(206),
     'should have correct content': function(err,res) {
-      var str1 = fs.readFileSync('./file1.txt').toString();
+      var str1 = fs.readFileSync('./test/file1.txt').toString();
       assert.equal(str1.substr(3),res.resp_body);
     }
   },
@@ -140,7 +140,7 @@ suite.addBatch({
     topic: api.get_data(container_name+'/testgetfile-1.txt',{Range:"bytes=-3"}),
     'should response with 206': assertStatus(206),
     'should have correct content': function(err,res) {
-      var str1 = fs.readFileSync('./file1.txt').toString();
+      var str1 = fs.readFileSync('./test/file1.txt').toString();
       assert.equal(str1.substr(str1.length-3),res.resp_body);
     }
   },
