@@ -1,0 +1,40 @@
+{
+  "name": "vblob",
+  "version": "0.0.0",
+  "description": "S3 compatible blob service gateway",
+  "main": "server.js",
+  "directories": {
+    "doc": "doc",
+    "test": "test"
+  },
+  "dependencies": {
+    "express": "^2.5.8",
+    "regexp-quote": "^0.0.0",
+    "sax": "^0.3.5",
+    "winston": "^0.5.9"
+  },
+  "devDependencies": {
+    "vows": "^0.6.1"
+  },
+  "engines": {
+    "node": ">= 0.8.0"
+  },
+  "scripts": {
+    "test": "vows test/common_test/test*.js --spec",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/felixbuenemann/vblob.git"
+  },
+  "keywords": [
+    "s3"
+  ],
+  "author": "SonicWang (https://github.com/SonicWang)",
+  "contributors": ["Felix Buenemann (https://github.com/felixbuenemann)"],
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/felixbuenemann/vblob/issues"
+  },
+  "homepage": "https://github.com/felixbuenemann/vblob"
+}
