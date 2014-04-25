@@ -36,21 +36,21 @@ suite.addBatch({
   }
 }).addBatch({
   'PUT testbasic-1.txt': {
-    topic: api.put_data('/testbasic-1.txt','./file1.txt',{'host': host}),
+    topic: api.put_data('/testbasic-1.txt','./test/file1.txt',{'host': host}),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT A/B.txt': {
-    topic: api.put_data('/A/B.txt','./file1.txt',{'host': host}),
+    topic: api.put_data('/A/B.txt','./test/file1.txt',{'host': host}),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT A/B/C.txt': {
-    topic: api.put_data('/A/B/C.txt','./file1.txt',{'host': host}),
+    topic: api.put_data('/A/B/C.txt','./test/file1.txt',{'host': host}),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
@@ -90,7 +90,7 @@ suite.addBatch({
     topic: api.get_data('/testbasic-1.txt',{'host': host}),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the content of the file': function (err,res) {
-      var str1 = fs.readFileSync('./file1.txt');
+      var str1 = fs.readFileSync('./test/file1.txt');
       assert.equal(str1,res.resp_body);
     } 
   }

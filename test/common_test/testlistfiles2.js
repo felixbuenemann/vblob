@@ -36,35 +36,35 @@ photos/2006/February/sample3.jpg
 photos/2006/February/sample4.jpg
 */
   'PUT container/sample.jpg': {
-    topic: api.put_data(container_name+'/sample.jpg','./file1.txt'),
+    topic: api.put_data(container_name+'/sample.jpg','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT container/photos/2006/January/sample.jpg': {
-    topic: api.put_data(container_name+'/photos/2006/January/sample.jpg','./file1.txt'),
+    topic: api.put_data(container_name+'/photos/2006/January/sample.jpg','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT container/photos/2006/February/sample2.jpg': {
-    topic: api.put_data(container_name+'/photos/2006/February/sample2.jpg','./file1.txt'),
+    topic: api.put_data(container_name+'/photos/2006/February/sample2.jpg','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT container/photos/2006/February/sample3.jpg': {
-    topic: api.put_data(container_name+'/photos/2006/February/sample3.jpg','./file1.txt'),
+    topic: api.put_data(container_name+'/photos/2006/February/sample3.jpg','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
     } 
   },
   'PUT container/photos/2006/February/sample4.jpg': {
-    topic: api.put_data(container_name+'/photos/2006/February/sample4.jpg','./file1.txt'),
+    topic: api.put_data(container_name+'/photos/2006/February/sample4.jpg','./test/file1.txt'),
     'should respond with a 200 OK':  assertStatus(200),
     'should respond with the md5 hex of the file': function (err,res) {
       assert.isString(res.headers.etag);
