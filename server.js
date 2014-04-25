@@ -4,6 +4,8 @@ Copyright (c) 2011-2012 VMware, Inc.
 var Logger = require('./common/logger').Logger; //logging module
 var valid_name = require('./common/container_name_check').is_valid_name; //container name check
 var express = require("express"); //express web framework
+var http = require('http');
+var https = require('https');
 var j2x = require('./common/json2xml'); //json to xml transformation
 var util = require('util');
 var fs = require('fs');
@@ -55,14 +57,7 @@ if (config.auth) {
   }
 }
 
-if (config.ssl) {
-  var app = express.createServer({
-    key: fs.readFileSync(config.ssl_key),
-    cert: fs.readFileSync(config.ssl_cert)
-  });
-} else {
-  var app = express.createServer( );
-}
+var app = express();
 
 if (config.host) {
   var bucketPattern = new RegExp('^(.+)\\.'+quote_re(config.host)+'(:'+config.port+')?$', 'i');
@@ -81,8 +76,15 @@ server_ready.pending_dr = 1; //one driver at any time
 
 server_ready.on('start', function() {
   logger.info(('listening to port ' + config.port + (config.ssl ? ' with SSL': '')));
-  if (config.port)
-  { app.listen(parseInt(config.port,10));}
+
+  if (config.ssl) {
+    https.createServer({
+      key: fs.readFileSync(config.ssl_key),
+      cert: fs.readFileSync(config.ssl_cert)
+    }, app).listen(config.port);
+  } else {
+    http.createServer(app).listen(config.port)
+  }
 });
 
 logger.info(('starting server'));
