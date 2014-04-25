@@ -16,7 +16,7 @@ var util = require('util');
 var XMLNS = "http://s3.amazonaws.com/doc/2006-03-01/";
 suite.addBatch({
   'simple json' : {
-    topic: function() { return {str:'world', integer: 3234, numerical: 5.25, arr: ['13',23,2.23], hash: {str:'hello', integer: 52, numerical:4.24} } ; },
+    topic: function() { return {root: {str:'world', integer: 3234, numerical: 5.25, arr: ['13',23,2.23], hash: {str:'hello', integer: 52, numerical:4.24} } }; },
     'should be able to convert between json and xml' : function(topic) {
       var xml = j2x(topic, 0, undefined);
       var parser = sax.parser(true);
@@ -33,9 +33,9 @@ suite.addBatch({
   }
 }).addBatch({
   'complex json' : {
-    topic: function() { return {str:'world', integer: 3234, numerical: 5.25, arr: ['13',23,2.23,
+    topic: function() { return {root: {str:'world', integer: 3234, numerical: 5.25, arr: ['13',23,2.23,
 { str:'aaa', integer: 323, numerical:52.2, arr:['23',2,2.23,{ h:'n'}], hash:{ h:'b'}}
-], hash: {str:'hello', integer: 52, numerical:4.24} } ; },
+], hash: {str:'hello', integer: 52, numerical:4.24} } } ; },
     'should be able to convert between json and xml' : function(topic) {
       var xml = j2x(topic, 0, undefined,true);
       var parser = sax.parser(true);
